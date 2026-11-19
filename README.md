@@ -3,7 +3,7 @@
 > 一片会生长、会受伤、会自愈、永不落定的《星空》式天空。  
 > 由作者亲手训练的 **5,856 参数** texture NCA 驱动，全程在浏览器本地运行。
 
-**在线作品：待部署验收**（目标地址 <https://wangcheng726.github.io/nca4plot/>）
+**在线作品：[https://wangcheng726.github.io/nca4plot/](https://wangcheng726.github.io/nca4plot/)**（2026-11-19 已通过 WebGPU / WASM 公网验收）
 
 ![作品静帧](media/poster_sky_1920x1080.png)
 
@@ -184,11 +184,11 @@ nca_starry_weights.json
 
 若首次启用 Pages，在仓库的 **Settings → Pages → Build and deployment** 中选择 **GitHub Actions**。工作流需要 `pages: write` 和 `id-token: write` 权限，配置已写在 workflow 中。
 
-本次交付目标是：
+本次交付已部署并通过公网验收：
 
 <https://wangcheng726.github.io/nca4plot/>
 
-部署后应实际验证首页、三个 ONNX 模型和 ORT 资源均返回 200，并在 WebGPU 与 WASM 下各运行一次。
+2026-11-19 实测首页、三个 ONNX 模型和 ORT 资源均返回 200；Chromium 下 WebGPU 主路径与 WASM 回退各完成一次运行，并检查了持续步进、暂停、鼠标擦除自愈、512 档切换和 390×844 移动端布局。
 
 ## 测试
 
