@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#03080d">
+  <meta name="description" content="一片会生长、会受伤、会自愈、永不落定的《星空》式天空，由 5,856 参数的神经细胞自动机驱动。">
+  <title>永不落定的星空 · A Sky That Never Settles</title>
+  <link rel="icon" href="./assets/images/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <canvas id="sky" aria-label="由神经细胞自动机生成的流动星空。拖动可擦除，松手后自愈。"></canvas>
+  <div class="screen-grain" aria-hidden="true"></div>
+  <div class="edge-shade" aria-hidden="true"></div>
+  <div class="cursor" id="cursor" aria-hidden="true"><span></span></div>
+
+  <header class="masthead">
+    <div class="eyebrow"><i class="live-dot"></i> NCA STUDY · 5,856 PARAMETERS</div>
+    <h1><span>永不落定的</span><em>星空</em></h1>
+    <p class="latin">A SKY THAT NEVER SETTLES</p>
+  </header>
+
+  <div class="status-pill" id="statusPill" aria-live="polite">
+    <span class="status-orbit"></span>
+    <span id="statusText">正在唤醒局部规则</span>
+    <span class="status-sep"></span>
+    <span id="stepCounter">000000</span>
+  </div>
+
+  <nav class="top-actions" aria-label="作品菜单">
+    <button class="text-button" id="aboutButton" type="button" aria-expanded="false">作品说明</button>
+    <button class="icon-button" id="fullscreenButton" type="button" aria-label="全屏">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></svg>
+    </button>
+  </nav>
+
+  <div class="gesture-note" id="gestureNote">
+    <span class="gesture-mark" aria-hidden="true">
+      <svg viewBox="0 0 34 34"><path d="M11 22c-3.8-3.1-5.6-5.5-4.2-7.4 1.1-1.6 3.2-1.7 4.7-.4l2.1 1.8V8.2a2 2 0 0 1 4 0v5.3-3.2a2 2 0 0 1 4 0v4.4-2.4a2 2 0 0 1 4 0v7.3c0 5-3.4 8.1-8 8.1-3.2 0-5.5-1.2-6.6-5.7Z"/></svg>
+    </span>
+    <p><strong>拖动，撕开夜空</strong><span>松手之后，它会自己重新长好。</span></p>
+  </div>
+
+  <div class="controls" role="group" aria-label="作品控制">
+    <button class="round-button" id="pauseButton" type="button" aria-label="暂停" title="暂停 / 继续">
+      <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+      <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>
+    </button>
+    <button class="round-button" id="resetButton" type="button" aria-label="重新生长" title="从零重新生长">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.7M20 5v6h-6"/></svg>
+    </button>
+    <label class="quality-control" title="模拟分辨率">
+      <span>质感</span>
+      <select id="qualitySelect" aria-label="模拟分辨率">
+        <option value="128">轻羽 128</option>
+        <option value="256" selected>绸缎 256</option>
+        <option value="512">厚涂 512</option>
+      </select>
+    </label>
+  </div>
+
+  <footer class="colophon">
+    <span>AFTER VINCENT VAN GOGH, 1889</span>
+    <span>LOCAL RULE → GLOBAL DRIFT</span>
+  </footer>
+
+  <section class="intro" id="intro" aria-label="进入作品">
+    <div class="intro-glow" aria-hidden="true"></div>
+    <div class="intro-inner">
+      <div class="intro-kicker"><span></span> AN ART × SCIENCE STUDY</div>
+      <h2>星空不是<br><em>一个状态。</em></h2>
+      <p class="intro-copy">它是一场仍在发生的过程。<br>由一颗零生长的细胞开始，局部规则不断协商出旋涡。<br>你可以撕开它；剩下的细胞会记得如何继续。</p>
+      <div class="intro-rule"></div>
+      <div class="intro-meta">
+        <div><span>MODEL</span><strong>5,856</strong><small>可训练参数</small></div>
+        <div><span>MATTER</span><strong>12</strong><small>通道天空物质</small></div>
+        <div><span>RULE</span><strong>LOCAL</strong><small>局部作用，全局涌现</small></div>
+      </div>
+      <button class="enter-button" id="enterButton" type="button" disabled>
+        <span id="enterLabel">天空正在形成</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
+      <p class="loading-detail" id="loadingDetail">初始化浏览器内细胞自动机…</p>
+    </div>
+    <div class="intro-index" aria-hidden="true">N° 04</div>
+  </section>
+
+  <section class="about" id="about" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" hidden>
+    <div class="about-backdrop" data-close-about></div>
+    <article class="about-card">
+      <button class="about-close" id="aboutClose" type="button" aria-label="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+      <div class="about-kicker">ABOUT THE WORK</div>
+      <h2 id="aboutTitle">星空是过程，<br>不是状态。</h2>
+      <div class="about-grid">
+        <div class="about-main">
+          <p>这片天空不是一张被播放的图片。画面里的每个像素都受同一套局部规则支配；规则只读取邻近细胞，却让旋涡、流带与厚涂肌理在全球尺度上自行出现。没有最终帧，也没有可抵达的平衡。</p>
+          <p>观众的拖拽会真正清空 12 个通道，而不是在画面上盖一层“伤口”。边界失去记忆后，周围细胞继续分裂、迁移、改写，缺口被新的笔触重新填满。破坏因此不是故障，而是作品继续生长的条件。</p>
+          <p>《星空》的旋涡常被读作湍流的视觉直觉。NCA 的“局部规则 → 全局自组织”，与湍流“局部作用 → 涡旋级联”构成一种同构的诗意，而不必是严格的物理证明：两者的美，都发生在尺度之间。</p>
+          <p class="about-caveat">需要说明：关于《星空》亮度谱符合 Kolmogorov −5/3 律的 2024 年测量，2025 年已有同行评论，相关解释仍有争议。本作只借“局部生成全局”的审美同构，不作物理证明。</p>
+        </div>
+        <aside class="about-aside">
+          <div><span>引擎</span><p>Texture NCA / Distill Self-Organising Textures</p></div>
+          <div><span>损失</span><p>VGG16 sliced optimal transport，非像素 MSE</p></div>
+          <div><span>训练</span><p>RTX 5070 Ti · 128px 零种子 · 5000 steps</p></div>
+          <div><span>引用</span><p>Ma &amp; Huang (2024), <i>Phys. Fluids</i> 36, 095140；Aragón (2008), arXiv:physics/0606246</p></div>
+        </aside>
+      </div>
+      <p class="about-foot">代码 MIT · 权重 CC BY 4.0 · 原画公有领域</p>
+    </article>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.playwright/
+.cache/
+media/tmp/
+*.log
+Thumbs.db
+.DS_Store
+
+checkpoints/internal/
+checkpoints/refine/
+checkpoints/rollouts_diag/
+checkpoints/compare/*/*.gif
+data/ort-web.tgz
+$null

@@ -1,0 +1,39 @@
+{
+  "source": "Van Gogh, The Starry Night (1889), Google Art Project / Wikimedia Commons",
+  "source_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg",
+  "license": "Public domain (two-dimensional work)",
+  "source_size": [
+    1280,
+    1014
+  ],
+  "source_sha256": "a2759458dbc9cf1150ddc8b5d16453aba4790ed6fe826c29f4cf59471d07e629",
+  "selected": "A-core-swirl",
+  "crop_box": [
+    430,
+    180,
+    830,
+    580
+  ],
+  "exemplar_size": 128,
+  "exemplar_sha256": "84eec9f1d3a5b439a83d705465fc9a69f2a47a083a7a27138ce8bc31164d1ae8",
+  "candidates": {
+    "A-core-swirl": [
+      430,
+      180,
+      830,
+      580
+    ],
+    "B-upper-current": [
+      480,
+      20,
+      880,
+      420
+    ],
+    "C-east-current": [
+      720,
+      150,
+      1120,
+      550
+    ]
+  }
+}
