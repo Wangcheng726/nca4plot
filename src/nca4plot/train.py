@@ -86,6 +86,8 @@ def save_light_checkpoint(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exemplar", type=Path, default=Path("data/exemplar_128.png"))
+    parser.add_argument("--exemplars", type=Path, nargs="+", default=None,
+                        help="multiple sky crops; each batch sample matches a random one (larger training set)")
     parser.add_argument("--out", type=Path, default=Path("checkpoints/nca_starry.pt"))
     parser.add_argument("--steps", type=int, default=5000)
     parser.add_argument("--seed", type=int, default=0)
@@ -148,11 +150,14 @@ def main() -> None:
             torch.cuda.set_rng_state_all([x.cpu() for x in state["cuda_rng_state"]])
         print(f"resumed from {args.resume_state} at step {start_step}")
 
-    style_img = image_to_nchw(args.exemplar, device)
-    if tuple(style_img.shape[-2:]) != (args.train_size, args.train_size):
-        raise ValueError(f"exemplar must be {args.train_size}x{args.train_size}, got {style_img.shape[-2:]}")
+    exemplar_paths = list(args.exemplars) if args.exemplars else [args.exemplar]
+    style_imgs = [image_to_nchw(p, device) for p in exemplar_paths]
+    for p, im in zip(exemplar_paths, style_imgs):
+        if tuple(im.shape[-2:]) != (args.train_size, args.train_size):
+            raise ValueError(f"exemplar {p} must be {args.train_size}x{args.train_size}, got {im.shape[-2:]}")
     style_loss = VGGStyleLoss(device)
-    target_features = style_loss.target_features(style_img)
+    target_features_list = [style_loss.target_features(im) for im in style_imgs]
+    multi = len(style_imgs) > 1
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     (args.out.parent / "internal").mkdir(parents=True, exist_ok=True)
@@ -163,6 +168,7 @@ def main() -> None:
     print(json.dumps({
         "event": "train_start", "device": str(device), "parameter_count": pc,
         "steps": args.steps, "resume_step": start_step, "exemplar": str(args.exemplar),
+        "exemplars": [str(p) for p in exemplar_paths],
         "exemplar_sha256": sha256_file(args.exemplar),
         "gradient_checkpointing": args.grad_checkpointing,
     }, ensure_ascii=False), flush=True)
@@ -185,7 +191,13 @@ def main() -> None:
             for _ in range(step_n):
                 x = ca(x)
 
-        loss = style_loss(to_rgb(x), target_features) + overflow_loss(x)
+        rgb = to_rgb(x)
+        if multi:
+            assign = rng.integers(0, len(style_imgs), args.batch_size)
+            style_term = style_loss.per_sample(rgb, target_features_list, assign)
+        else:
+            style_term = style_loss(rgb, target_features_list[0])
+        loss = style_term + overflow_loss(x)
         if not bool(torch.isfinite(loss)):
             raise FloatingPointError(f"non-finite loss at step {step}: {loss.item()}")
 

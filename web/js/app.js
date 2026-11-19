@@ -169,7 +169,10 @@ function renderLoop(now) {
   const dt = Math.min(now - lastFrame, 100);
   lastFrame = now;
 
-  if (rendererReady) renderer.render(now * 0.001);
+  if (rendererReady) {
+    renderer.render(now * 0.001);
+    renderer.timeScale = paused ? 0 : 1;
+  }
 
   if (!entered || paused || busy || !engine) {
     updateStatus();
@@ -245,6 +248,8 @@ function paintWound(point, previous = null) {
   } else {
     engine.eraseCircle(point.x, point.y, radius, 1.5);
   }
+  renderer.markWound(point.x, point.y, radius);
+  if (previous) renderer.markWound(previous.x, previous.y, radius);
   renderer.uploadState(engine.stateData, engine.size);
   woundUntil = performance.now() + 1050;
   updateStatus();
@@ -309,6 +314,7 @@ window.addEventListener('resize', () => {
 pauseButton.addEventListener('click', () => {
   if (!engine) return;
   paused = !paused;
+  renderer.timeScale = paused ? 0 : 1;
   pauseButton.classList.toggle('paused', paused);
   pauseButton.setAttribute('aria-label', paused ? '继续' : '暂停');
   showToast(paused ? '天空停在此刻；伤口也会等待。' : '局部规则重新开始流动。', 1600);
@@ -321,6 +327,7 @@ resetButton.addEventListener('click', () => {
   paused = false;
   pauseButton.classList.remove('paused');
   pauseButton.setAttribute('aria-label', '暂停');
+  renderer.resetActivity();
   renderer.uploadState(engine.stateData, engine.size);
   document.body.classList.remove('has-drawn');
   woundUntil = 0;
@@ -408,6 +415,7 @@ boot();
 // Small public surface for testing, documentation screenshots, and live debugging.
 window.nca4plot = {
   get engine() { return engine; },
+  get renderer() { return renderer; },
   get entered() { return entered; },
   get paused() { return paused; },
   get steps() { return engine?.steps ?? 0; },
@@ -419,6 +427,7 @@ window.nca4plot = {
   eraseNormalized(u, v, radius = 10) {
     if (!engine) return;
     engine.eraseCircle(u * engine.size, (1 - v) * engine.size, radius, 1.5);
+    renderer.markWound(u * engine.size, (1 - v) * engine.size, radius);
     renderer.uploadState(engine.stateData, engine.size);
     woundUntil = performance.now() + 1200;
     document.body.classList.add('has-drawn');

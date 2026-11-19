@@ -15,3 +15,5 @@ checkpoints/rollouts_diag/
 checkpoints/compare/*/*.gif
 data/ort-web.tgz
 $null
+
+media/iterate/

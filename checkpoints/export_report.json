@@ -1,12 +1,12 @@
 {
   "source_checkpoint": "checkpoints/nca_starry.pt",
-  "source_sha256": "0df19d486b18fc10db69f909060ecc38dfb4eda8701ab0a51c32f29ea5434a1e",
-  "source_step": 5000,
+  "source_sha256": "f426e34397dd41dba4e6be93560f7250fdffc34e2850ec0c649f981df89fe07b",
+  "source_step": 6000,
   "model_checkpoint": {
     "path": "checkpoints/nca_starry_model.pt",
     "bytes": 26354,
-    "sha256": "57bbb1f55f1028b76e202df1ef5991b987116df23ae410cf710fa5e19767c3d1",
-    "step": 5000
+    "sha256": "a49c1d18dcb18f715cf02bcbdadcf2d726e2af29d2c120e9d1d8775e1f1915ea",
+    "step": 6000
   },
   "onnx": [
     {
@@ -14,33 +14,33 @@
       "steps": 4,
       "path": "checkpoints/nca_starry_128.onnx",
       "bytes": 39544,
-      "sha256": "f96b74b651100ff95de42a55ecea5f73166b22e8501e0acca50d3ef72f48988e",
-      "max_abs_diff": 5.960464477539063e-08,
-      "mean_abs_diff": 5.464297458956935e-09
+      "sha256": "b36492ad1bcdec67c4f67132a92d9fa434d1c0d75e3250f3a1bb0afd4d0389db",
+      "max_abs_diff": 2.9802322387695312e-08,
+      "mean_abs_diff": 3.1372857645095564e-09
     },
     {
       "size": 256,
       "steps": 4,
       "path": "checkpoints/nca_starry_256.onnx",
       "bytes": 39544,
-      "sha256": "21ae66e2bd70d98df64331e4a195e3ab47c230b9aac5388f359c68bf16f99568",
-      "max_abs_diff": 8.940696716308594e-08,
-      "mean_abs_diff": 5.462243546361378e-09
+      "sha256": "67f2b7e1cec80c2fe41f0de53f276ac5e788e7f5a46c6577a327417f22b30fff",
+      "max_abs_diff": 4.470348358154297e-08,
+      "mean_abs_diff": 3.1275966261290478e-09
     },
     {
       "size": 512,
       "steps": 2,
       "path": "checkpoints/nca_starry_512.onnx",
       "bytes": 31764,
-      "sha256": "3068fd6a1d0ebfa25d2f9882c14742fb77de8c6770e659b0ade46e2caeec94b7",
-      "max_abs_diff": 4.470348358154297e-08,
-      "mean_abs_diff": 1.9012751373281844e-09
+      "sha256": "3eab2d814f66a27243ee442b61c4f7d2e4e5a933ddbb62be5a2397f5ff2e8990",
+      "max_abs_diff": 1.862645149230957e-08,
+      "mean_abs_diff": 1.1109967390510178e-09
     }
   ],
   "weights": {
     "path": "checkpoints/nca_starry_weights.json",
-    "bytes": 180603,
-    "sha256": "40d7314d5b3ad064a1c2118bf7e8c6620e25d2326b50eb06cf46ff620b305abc"
+    "bytes": 180506,
+    "sha256": "3943a00ac0597b0bef4d6d9753e3cdb98617b6a4c2be4e5e96c775bcb4b383fc"
   },
   "web_models": [
     {

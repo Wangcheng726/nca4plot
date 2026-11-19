@@ -37,13 +37,13 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
     yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
 
-    long_streaks = fft_band_noise(rng, n, 1.4, 22.0)
-    medium_streaks = fft_band_noise(rng, n, 3.4, 38.0)
-    broad = fft_band_noise(rng, n, 14.0, 30.0)
-    micro = fft_band_noise(rng, n, 100.0, 100.0)
+    long_streaks = fft_band_noise(rng, n, 1.0, 8.0)
+    medium_streaks = fft_band_noise(rng, n, 2.2, 14.0)
+    broad = fft_band_noise(rng, n, 6.0, 12.0)
+    micro = fft_band_noise(rng, n, 40.0, 40.0)
 
     warp = normalize(broad) * 2.0 - 1.0
-    phase = 2.0 * np.pi * (yy * 42.0 + warp * 2.3) / n
+    phase = 2.0 * np.pi * (yy * 14.0 + warp * 2.3) / n
     bristle = 0.5 + 0.5 * np.sin(phase)
     bristle = normalize(0.58 * bristle + 0.42 * medium_streaks)
 

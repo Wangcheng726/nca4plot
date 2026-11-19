@@ -93,8 +93,12 @@ uv run python -m nca4plot.prepare_exemplar --candidate A-core-swirl
 ### 2. 训练
 
 ```powershell
-uv run python -m nca4plot.train --steps 5000 --out checkpoints/nca_starry.pt
+uv run python -m nca4plot.train `
+  --exemplars data/exemplar_A-core-swirl.png data/exemplar_B-upper-current.png data/exemplar_C-east-current.png `
+  --steps 6000 --out checkpoints/nca_starry.pt
 ```
+
+正式训练使用**三块天空裁剪（A 核心旋涡 / B 上方洋流 / C 东侧洋流）作为多 exemplar**：每个 batch 样本随机抽取一块裁剪计算 VGG 风格目标，使笔触更厚、方向更多变，避免单 exemplar 过拟合出单调纹样。单 exemplar 5000 步的对照权重保留为 `checkpoints/nca_starry_single.pt`。
 
 正式训练参数：
 
@@ -103,7 +107,7 @@ uv run python -m nca4plot.train --steps 5000 --out checkpoints/nca_starry.pt
 - 每 8 步将一个零种子写回 pool
 - Adam `lr=1e-3`；MultiStepLR milestones `[1000, 2000]`，gamma `0.3`
 - 梯度范数归一化
-- 5000 steps，RTX 5070 Ti 实测约 **394.6 秒**，峰值 reserved 显存约 **4.37 GB**
+- 6000 steps，RTX 5070 Ti 实测约 **683 秒**，峰值 reserved 显存约 **1.4 GB**
 
 训练日志和采样图位于 `checkpoints/training_log.jsonl`、`checkpoints/samples/`。
 
@@ -129,7 +133,7 @@ uv run python -m nca4plot.export_onnx --checkpoint checkpoints/nca_starry.pt --s
 - `checkpoints/export_report.json`（SHA256 与 PyTorch/ONNX 误差）
 - `web/models/` 下的同名 ONNX 文件
 
-已验证 PyTorch 与 ONNX Runtime 最大绝对误差：128 为 `5.96e-8`，256 为 `8.94e-8`，512 为 `4.47e-8`。
+已验证 PyTorch 与 ONNX Runtime 最大绝对误差：128 为 `2.98e-8`，256 为 `4.47e-8`，512 为 `1.86e-8`。
 
 ### 4. 本地运行网页
 
@@ -146,6 +150,26 @@ uv run python scripts/capture_web.py --quality 512 --duration 17
 ```
 
 脚本会启动本地服务器、用本机 Chrome 捕获真实 WebGPU 画面，并生成 MP4、GIF、海报、过程图和手机布局截图。需要安装 Chrome；媒体编码使用项目 dev 依赖中的 `imageio[ffmpeg]`。
+
+### 6. 本地效果验证
+
+```powershell
+uv run python -m http.server 8765 -d web --bind 127.0.0.1
+uv run python scripts/verify_local.py http://127.0.0.1:8765/ 256 final
+```
+
+脚本用本机 Chrome（headless WebGPU）做四项客观检查，截图与 JSON 报告写入 `media/iterate/`：
+
+- **流动强度**：间隔 0.4s 两帧的平均绝对差（当前约 24.6/255，画面持续运动）；
+- **频闪**：暂停 CA 后连续 11 帧的最大帧间差（当前约 0.0018/255，即静止画面零闪烁）；
+- **笔刷对齐**：暂停态真实鼠标笔画，伤口质心与光标在状态空间的偏差（当前约 0.22 细胞）；
+- **自愈**：擦除细胞数与恢复后纹理方差，另附生长序列截图（零种子 60 步即出现星空笔触）。
+
+渲染器材质参数可在控制台实时调整：`window.nca4plot.renderer.grade = {contrast, sat, relief, spec, edge}`。
+
+### 渲染：材质增强，运动只来自 NCA
+
+WebGL2 后处理只做"厚涂材质"，不制造任何假流动：笔触方向场是**静态** curl-noise（不随帧旋转），纤维 relief 与纸面 grain 也是静态纹理；可见度 alpha 取隐藏通道幅值与色彩活性的较大者，并做 EMA 时间平滑，因此异步更新不会造成逐帧黑白频闪。色彩分级（对比 / 饱和 / 暗轮廓）只放大 NCA 自己长出的钴蓝、群青与奶油色结构。早期版本的三个缺陷——隐藏通道阈值门控导致的频闪、笔刷垂直镜像错位、笔刷纹理高频梳状纹——已分别以时间平滑 alpha、`UNPACK_FLIP_Y_WEBGL` 上传、重生成低频 `brush.png` 修复。撕裂瞬间另有一层**指数衰减的 scar 场**（约 0.9s 半衰期，暂停时冻结）把伤口压成深夜色：NCA 回填的灰色 primer 组织先从黑暗中显影、再长出颜料，避免活体状态下伤口读作灰抹痕。scar 只调制材质可见度，不产生任何运动。
 
 ## 交付物索引
 
@@ -169,13 +193,13 @@ uv run python scripts/capture_web.py --quality 512 --duration 17
 
 ```text
 nca_starry.pt
-0df19d486b18fc10db69f909060ecc38dfb4eda8701ab0a51c32f29ea5434a1e
+f426e34397dd41dba4e6be93560f7250fdffc34e2850ec0c649f981df89fe07b
 
 nca_starry_model.pt
-57bbb1f55f1028b76e202df1ef5991b987116df23ae410cf710fa5e19767c3d1
+a49c1d18dcb18f715cf02bcbdadcf2d726e2af29d2c120e9d1d8775e1f1915ea
 
 nca_starry_weights.json
-40d7314d5b3ad064a1c2118bf7e8c6620e25d2326b50eb06cf46ff620b305abc
+3943a00ac0597b0bef4d6d9753e3cdb98617b6a4c2be4e5e96c775bcb4b383fc
 ```
 
 ## 部署

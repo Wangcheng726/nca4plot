@@ -13,7 +13,7 @@ def image_to_nchw(path: str | Path, device: torch.device | str = "cpu") -> torch
     img = Image.open(path).convert("RGB")
     arr = np.asarray(img, dtype=np.float32) / 255.0
     x = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
-    x = x.to(device=device, dtype=torch.float32) * 2.0 - 1.0
+    x = x.to(device=device, dtype=torch.float32)  # exemplar stays in [0,1] like official imread
     return x
 
 

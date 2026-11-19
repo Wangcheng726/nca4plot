@@ -54,6 +54,21 @@ class VGGStyleLoss:
         source = self.features(imgs)
         return sum(self.ot_loss(x, y) for x, y in zip(source, target_features))
 
+    def per_sample(
+        self,
+        imgs: torch.Tensor,
+        targets: list[list[torch.Tensor]],
+        assign: "np.ndarray | list[int]",
+    ) -> torch.Tensor:
+        """Style loss where each batch element matches its own exemplar."""
+        source = self.features(imgs)
+        total = None
+        for i, t in enumerate(assign):
+            tf = targets[int(t)]
+            acc = sum(self.ot_loss(x[i : i + 1], y) for x, y in zip(source, tf))
+            total = acc if total is None else total + acc
+        return total
+
 
 def overflow_loss(state: torch.Tensor) -> torch.Tensor:
     return (state - state.clamp(-1.0, 1.0)).abs().sum()
