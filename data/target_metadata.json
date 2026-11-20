@@ -1,0 +1,52 @@
+{
+  "source": "Van Gogh, The Starry Night (1889), Google Art Project / Wikimedia Commons",
+  "source_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/1280px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg",
+  "license": "Public domain (two-dimensional work)",
+  "source_size": [
+    1280,
+    1014
+  ],
+  "source_sha256": "a2759458dbc9cf1150ddc8b5d16453aba4790ed6fe826c29f4cf59471d07e629",
+  "crop_box": [
+    16,
+    8,
+    1264,
+    710
+  ],
+  "crop_note": "whole sky: cypress, moon, both swirls, all stars, hill horizon; village excluded",
+  "alpha": "opaque everywhere (the full rectangle is living matter)",
+  "targets": {
+    "256x144": {
+      "size": [
+        256,
+        144
+      ],
+      "sha256": "daaf0a039bed9a568d12cd7ab0b0d6f00abc8964b85de42361b1ae528ede4a1e",
+      "path": "data/target_sky_256x144.png"
+    },
+    "384x216": {
+      "size": [
+        384,
+        216
+      ],
+      "sha256": "fd1126c8690986eb037e948ca5fb40e853629e3780a16648ec6943b357fde146",
+      "path": "data/target_sky_384x216.png"
+    },
+    "192x108": {
+      "size": [
+        192,
+        108
+      ],
+      "sha256": "43c1f3b59fc780aef8877969a83150691c4c7489710d939d5397cf94578fc587",
+      "path": "data/target_sky_192x108.png"
+    },
+    "128x72": {
+      "size": [
+        128,
+        72
+      ],
+      "sha256": "7022a574ec2a6cdcbd4052097444863ff3faabb70b117ffc6c6ec7d0cc0908a4",
+      "path": "data/target_sky_128x72.png"
+    }
+  }
+}

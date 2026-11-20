@@ -53,6 +53,9 @@ class CA(nn.Module):
         self.w1 = nn.Conv2d(chn * 4, hidden_n, 1)
         self.w2 = nn.Conv2d(hidden_n, chn, 1, bias=False)
         self.w2.weight.data.zero_()
+        # Growing-CA life gate: dead (alpha~0) cells stay exactly zero.
+        # Enabled only for the target/regenerate model; texture model keeps False.
+        self.life_gating = False
 
     def perceive(self, x: torch.Tensor) -> torch.Tensor:
         return perchannel_conv(x, perception_filters(x.device, x.dtype))
@@ -60,7 +63,12 @@ class CA(nn.Module):
     def step(self, x: torch.Tensor, update_mask: torch.Tensor) -> torch.Tensor:
         """One update with an externally supplied per-cell [B,1,H,W] mask."""
         y = self.w2(torch.relu(self.w1(self.perceive(x))))
-        return x + y * update_mask
+        if not self.life_gating:
+            return x + y * update_mask
+        pre = (F.max_pool2d(x[:, 3:4], 3, stride=1, padding=1) > 0.1).to(x.dtype)
+        x = x + y * update_mask
+        post = (F.max_pool2d(x[:, 3:4], 3, stride=1, padding=1) > 0.1).to(x.dtype)
+        return x * pre * post
 
     def forward(self, x: torch.Tensor, update_rate: float = 0.5) -> torch.Tensor:
         b, c, h, w = x.shape

@@ -18,19 +18,41 @@ const aboutPanel = document.querySelector('#about');
 const aboutClose = document.querySelector('#aboutClose');
 const fullscreenButton = document.querySelector('#fullscreenButton');
 const gestureNote = document.querySelector('#gestureNote');
+const gestureStrong = gestureNote.querySelector('strong');
+const gestureSpan = gestureNote.querySelector('p span');
 const toast = document.querySelector('#toast');
+const modeButtons = Array.from(document.querySelectorAll('.mode-button'));
 
 const params = new URLSearchParams(location.search);
 const captureMode = params.has('capture');
 const autostart = captureMode || params.has('autostart') || params.get('enter') === '1';
 const requestedQuality = Number(params.get('quality'));
 const initialSize = [128, 256, 512].includes(requestedQuality) ? requestedQuality : 256;
+const MODES = ['regenerate', 'growing', 'persistent'];
+const requestedMode = params.get('mode');
+let mode = MODES.includes(requestedMode) ? requestedMode : 'regenerate';
+
+const MODE_COPY = {
+  regenerate: {
+    gesture: ['拖动，撕开夜空', '松手之后，它会重新长回原来的画。'],
+    toast: '再生模式：撕开的地方，会长回《星空》本来的样子。',
+  },
+  growing: {
+    gesture: ['拖动，撕开夜空', '散落的记忆星点，自组织成整幅天空。'],
+    toast: '生长模式：散落的记忆星点，长回整幅《星空》。',
+  },
+  persistent: {
+    gesture: ['拖动，撕开夜空', '松手之后，它会自己重新组织。'],
+    toast: '永动模式：没有目标图，天空永远流动、永不重复。',
+  },
+};
 
 const renderer = new SkyRenderer(canvas);
 let engine = null;
 let entered = false;
 let paused = false;
 let busy = false;
+let switching = false;
 let frameHandle = 0;
 let lastFrame = performance.now();
 let lastInference = 0;
@@ -43,6 +65,7 @@ let lastPoint = null;
 let toastTimer = 0;
 let rendererReady = false;
 let sessionInfo = { backend: '—', loadMs: 0 };
+const targetMetaCache = new Map();
 
 if (captureMode) document.body.classList.add('capture');
 
@@ -54,13 +77,13 @@ function padSteps(value) {
   return String(Math.floor(value)).padStart(6, '0');
 }
 
-function setStatus(label, mode = '') {
-  const key = `${label}|${mode}`;
+function setStatus(label, modeClass = '') {
+  const key = `${label}|${modeClass}`;
   if (key === lastStatusKey) return;
   lastStatusKey = key;
   statusText.textContent = label;
-  statusPill.classList.toggle('running', mode === 'running');
-  statusPill.classList.toggle('wounded', mode === 'wounded');
+  statusPill.classList.toggle('running', modeClass === 'running');
+  statusPill.classList.toggle('wounded', modeClass === 'wounded');
 }
 
 function updateStepCounter() {
@@ -70,12 +93,24 @@ function updateStepCounter() {
 function updateStatus() {
   if (!engine) return;
   const now = performance.now();
-  if (paused) {
+  if (switching) {
+    setStatus('正在切换天空的记忆…');
+  } else if (paused) {
     setStatus('已暂停 · 局部规则静候');
   } else if (now < woundUntil) {
-    setStatus('伤口边界失效 · 正在再生', 'wounded');
+    setStatus(engine.kind === 'target' ? '伤口正在长回原画' : '伤口边界失效 · 正在再生', 'wounded');
   } else if (!entered) {
     setStatus('正在唤醒局部规则');
+  } else if (engine.kind === 'target') {
+    if (mode === 'growing' && engine.steps < 90) {
+      setStatus('从记忆星群出发 · 自组织中', 'running');
+    } else if (mode === 'growing') {
+      setStatus('已长成 · 记忆中的星空', 'running');
+    } else if (engine.steps < 150) {
+      setStatus('记忆完好 · 天空正在苏醒', 'running');
+    } else {
+      setStatus('记忆完好 · 撕开后会重新长回', 'running');
+    }
   } else if (engine.steps < 280) {
     setStatus('从一颗零出发 · 生长中', 'running');
   } else {
@@ -91,11 +126,61 @@ function showToast(message, duration = 2400) {
   toastTimer = setTimeout(() => toast.classList.remove('visible'), duration);
 }
 
-async function makeEngine(size, warmSteps = 0, budgetMs = 5000) {
-  const next = new NCAEngine(size);
+function updateModeButtons() {
+  for (const button of modeButtons) {
+    const active = button.dataset.mode === mode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  }
+}
+
+function setModeButtonsDisabled(disabled) {
+  for (const button of modeButtons) button.disabled = disabled;
+}
+
+function updateGestureCopy() {
+  const copy = MODE_COPY[mode] ?? MODE_COPY.regenerate;
+  gestureStrong.textContent = copy.gesture[0];
+  gestureSpan.textContent = copy.gesture[1];
+}
+
+async function loadTargetMeta(sizeKey = '') {
+  if (!targetMetaCache.has(sizeKey)) {
+    const name = sizeKey ? `nca_target_meta_${sizeKey}.json` : 'nca_target_meta.json';
+    let response = await fetch(new URL(`../models/${name}`, import.meta.url).href);
+    if (!response.ok && sizeKey) {
+      response = await fetch(new URL('../models/nca_target_meta.json', import.meta.url).href);
+    }
+    if (!response.ok) throw new Error(`target meta missing: ${response.status}`);
+    targetMetaCache.set(sizeKey, await response.json());
+  }
+  return targetMetaCache.get(sizeKey);
+}
+
+function warmPlan(nextMode) {
+  if (nextMode === 'persistent') return captureMode ? 680 : 280;
+  if (nextMode === 'regenerate') return captureMode ? 640 : 460;
+  return 0; // growing: the visitor watches the memory constellation coalesce
+}
+
+async function buildEngine(nextMode, quality, warmSteps, budgetMs) {
+  let next;
+  if (nextMode === 'persistent') {
+    next = new NCAEngine({ kind: 'texture', width: quality, height: quality });
+  } else {
+    const meta = await loadTargetMeta();
+    // Growing shares the painting weights but boots from a sparse memory
+    // constellation and runs on a slower clock so the self-organisation is
+    // watchable (~14 CA steps/s instead of ~60).
+    next = new NCAEngine({
+      kind: 'target', width: meta.width, height: meta.height,
+      stepsPerRun: nextMode === 'growing' ? 1 : undefined,
+    });
+  }
   let info;
   try {
     info = await next.load();
+    if (nextMode === 'growing') next.plantConstellation();
     if (warmSteps > 0) {
       await next.warmup(warmSteps, budgetMs, (steps) => {
         if (!entered) {
@@ -108,7 +193,7 @@ async function makeEngine(size, warmSteps = 0, budgetMs = 5000) {
     next.dispose();
     throw error;
   }
-  sessionInfo = { ...info, size };
+  sessionInfo = { ...info, size: next.width };
   return next;
 }
 
@@ -119,22 +204,64 @@ async function waitUntilIdle(timeoutMs = 2000) {
   }
 }
 
+async function applyMode(nextMode, { silent = false } = {}) {
+  if (!MODES.includes(nextMode) || switching) return;
+  const nextKind = nextMode === 'persistent' ? 'texture' : 'target';
+  if (engine && nextMode === mode && engine.kind === nextKind) return;
+  switching = true;
+  setModeButtonsDisabled(true);
+  const previous = engine;
+  const previousMode = mode;
+  try {
+    await waitUntilIdle();
+    const quality = Number(qualitySelect.value) || initialSize;
+    const next = await buildEngine(nextMode, quality, warmPlan(nextMode), captureMode ? 16000 : 8000);
+    previous?.dispose();
+    engine = next;
+    mode = nextMode;
+    paused = false;
+    pauseButton.classList.remove('paused');
+    pauseButton.setAttribute('aria-label', '暂停');
+    renderer.setKind(engine.kind);
+    renderer.setSimulationSize(engine.width, engine.height);
+    renderer.resetActivity();
+    renderer.uploadState(engine.stateData, engine.width, engine.height);
+    woundUntil = 0;
+    lastInference = 0;
+    updateModeButtons();
+    updateGestureCopy();
+    updateStatus();
+    if (!silent) showToast(MODE_COPY[mode].toast, 2800);
+  } catch (error) {
+    console.error('[nca4plot] mode switch failed', error);
+    mode = previousMode;
+    updateModeButtons();
+    showToast('切换失败，已保留原来的天空。', 3400);
+  } finally {
+    switching = false;
+    setModeButtonsDisabled(false);
+    qualitySelect.disabled = mode !== 'persistent';
+  }
+}
+
 async function boot() {
   try {
     await renderer.init();
+    renderer.setKind(mode === 'persistent' ? 'texture' : 'target');
     renderer.setSimulationSize(initialSize);
     rendererReady = true;
     renderLoop(performance.now());
 
+    qualitySelect.value = String(initialSize);
     loadingDetail.textContent = '加载 5,856 参数的神经细胞自动机…';
-    const warmTarget = captureMode ? 680 : 280;
-    const warmBudget = captureMode ? 16000 : 5600;
-    engine = await makeEngine(initialSize, warmTarget, warmBudget);
-    renderer.uploadState(engine.stateData, engine.size);
+    updateModeButtons();
+    updateGestureCopy();
+    await applyMode(mode, { silent: true });
+    if (!engine) throw new Error('engine was not built');
     updateStepCounter();
 
     if (engine.steps < 20) {
-      loadingDetail.textContent = '模型已就绪，天空将从零开始生长。';
+      loadingDetail.textContent = '模型已就绪，天空将从一片记忆星群开始生长。';
     } else {
       loadingDetail.textContent = `${engine.backend === 'webgpu' ? 'WebGPU' : 'WASM'} · 已生长 ${engine.steps} 步 · 5,856 参数`;
     }
@@ -174,7 +301,7 @@ function renderLoop(now) {
     renderer.timeScale = paused ? 0 : 1;
   }
 
-  if (!entered || paused || busy || !engine) {
+  if (!entered || paused || busy || switching || !engine) {
     updateStatus();
     return;
   }
@@ -186,7 +313,7 @@ function renderLoop(now) {
     engine.run()
       .then((advanced) => {
         if (advanced) {
-          renderer.uploadState(engine.stateData, engine.size);
+          renderer.uploadState(engine.stateData, engine.width, engine.height);
           updateStepCounter();
         }
       })
@@ -198,7 +325,8 @@ function renderLoop(now) {
       })
       .finally(() => {
         const elapsed = performance.now() - started;
-        inferenceDelay = clamp(Math.max(16.7, elapsed * 1.06), 16.7, 130);
+        const floor = mode === 'growing' ? 71 : 16.7;
+      inferenceDelay = clamp(Math.max(floor, elapsed * 1.06), floor, 130);
         busy = false;
       });
   }
@@ -208,8 +336,8 @@ function renderLoop(now) {
 
 function simulationRadiusFromScreen(screenRadius) {
   if (!engine) return 10;
-  const rect = canvas.getBoundingClientRect();
-  return Math.max(1.2, screenRadius * engine.size / Math.max(rect.width, 1));
+  const r = renderer.caScreenRect();
+  return Math.max(1.2, screenRadius * engine.width / Math.max(r.width, 1));
 }
 
 function screenBrushRadius() {
@@ -223,25 +351,11 @@ function updateCursorSize() {
 }
 
 function mapPointerToState(clientX, clientY) {
-  const rect = canvas.getBoundingClientRect();
-  const sx = clamp((clientX - rect.left) / Math.max(rect.width, 1), 0, 1);
-  const sy = clamp(1 - (clientY - rect.top) / Math.max(rect.height, 1), 0, 1);
-  const aspect = rect.width / Math.max(rect.height, 1);
-  let ux = sx;
-  let uy = sy;
-  if (aspect > 1) {
-    uy = 0.5 + (sy - 0.5) / aspect;
-  } else {
-    ux = 0.5 + (sx - 0.5) * aspect;
-  }
-  return {
-    x: ux * engine.size,
-    y: (1 - uy) * engine.size,
-  };
+  return renderer.screenToCa(clientX, clientY);
 }
 
 function paintWound(point, previous = null) {
-  if (!engine || paused && !entered) return;
+  if (!engine || !point || (paused && !entered)) return;
   const radius = simulationRadiusFromScreen(screenBrushRadius());
   if (previous) {
     engine.eraseSegment(previous.x, previous.y, point.x, point.y, radius, 1.5);
@@ -250,7 +364,7 @@ function paintWound(point, previous = null) {
   }
   renderer.markWound(point.x, point.y, radius);
   if (previous) renderer.markWound(previous.x, previous.y, radius);
-  renderer.uploadState(engine.stateData, engine.size);
+  renderer.uploadState(engine.stateData, engine.width, engine.height);
   woundUntil = performance.now() + 1050;
   updateStatus();
 }
@@ -272,8 +386,12 @@ canvas.addEventListener('pointermove', (event) => {
   moveCursor(event);
   if (activePointerId !== event.pointerId) return;
   const point = mapPointerToState(event.clientX, event.clientY);
-  paintWound(point, lastPoint);
-  lastPoint = point;
+  if (point) {
+    paintWound(point, lastPoint);
+    lastPoint = point;
+  } else {
+    lastPoint = null;
+  }
 });
 
 canvas.addEventListener('pointerdown', (event) => {
@@ -284,8 +402,10 @@ canvas.addEventListener('pointerdown', (event) => {
   updateCursorSize();
   moveCursor(event);
   lastPoint = mapPointerToState(event.clientX, event.clientY);
-  woundCount += 1;
-  paintWound(lastPoint);
+  if (lastPoint) {
+    woundCount += 1;
+    paintWound(lastPoint);
+  }
   event.preventDefault();
 });
 
@@ -308,7 +428,7 @@ canvas.addEventListener('pointerleave', () => {
 window.addEventListener('resize', () => {
   renderer.resize();
   updateCursorSize();
-  if (engine) renderer.uploadState(engine.stateData, engine.size);
+  if (engine) renderer.uploadState(engine.stateData, engine.width, engine.height);
 });
 
 pauseButton.addEventListener('click', () => {
@@ -322,23 +442,35 @@ pauseButton.addEventListener('click', () => {
 });
 
 resetButton.addEventListener('click', () => {
-  if (!engine || busy) return;
-  engine.reset();
+  if (!engine || busy || switching) return;
+  if (mode === 'growing') engine.plantConstellation();
+  else engine.reset();
   paused = false;
   pauseButton.classList.remove('paused');
   pauseButton.setAttribute('aria-label', '暂停');
   renderer.resetActivity();
-  renderer.uploadState(engine.stateData, engine.size);
+  renderer.uploadState(engine.stateData, engine.width, engine.height);
   document.body.classList.remove('has-drawn');
   woundUntil = 0;
   lastInference = 0;
-  showToast('一切归零。新的天空正在长出来。', 2400);
+  showToast(mode === 'persistent'
+    ? '一切归零。新的天空正在长出来。'
+    : mode === 'growing'
+      ? '回到一片记忆星群。天空会重新长出来。'
+      : '记忆复原。天空回到《星空》本来的样子。', 2400);
   updateStatus();
 });
 
+for (const button of modeButtons) {
+  button.addEventListener('click', () => {
+    if (!engine || switching) return;
+    applyMode(button.dataset.mode);
+  });
+}
+
 qualitySelect.addEventListener('change', async () => {
   const size = Number(qualitySelect.value);
-  if (!engine || size === engine.size) return;
+  if (!engine || mode !== 'persistent' || size === engine.width) return;
   qualitySelect.disabled = true;
   const wasPaused = paused;
   const previousInfo = sessionInfo;
@@ -347,11 +479,11 @@ qualitySelect.addEventListener('change', async () => {
   showToast(`切换至 ${size}px 模拟网格，正在重新生长。`, 3200);
   try {
     await waitUntilIdle();
-    const next = await makeEngine(size, size === 512 ? 180 : 240, 6500);
+    const next = await buildEngine('persistent', size, size === 512 ? 180 : 240, 6500);
     engine.dispose();
     engine = next;
-    renderer.setSimulationSize(size);
-    renderer.uploadState(engine.stateData, size);
+    renderer.setSimulationSize(size, size);
+    renderer.uploadState(engine.stateData, size, size);
     paused = wasPaused;
     pauseButton.classList.toggle('paused', paused);
     updateStepCounter();
@@ -361,12 +493,12 @@ qualitySelect.addEventListener('change', async () => {
     console.error('[nca4plot] quality switch failed', error);
     sessionInfo = previousInfo;
     showToast('切换失败，已保留原来的天空。', 3400);
-    qualitySelect.value = String(engine.size);
+    qualitySelect.value = String(engine.width);
     paused = wasPaused;
     pauseButton.classList.toggle('paused', paused);
     updateStatus();
   } finally {
-    qualitySelect.disabled = false;
+    qualitySelect.disabled = mode !== 'persistent';
   }
 });
 
@@ -421,14 +553,18 @@ window.nca4plot = {
   get steps() { return engine?.steps ?? 0; },
   get backend() { return sessionInfo.backend; },
   get woundCount() { return woundCount; },
+  get mode() { return mode; },
   enter: enterSky,
   reset: () => resetButton.click(),
   pause: () => pauseButton.click(),
+  setMode: (next) => applyMode(next),
   eraseNormalized(u, v, radius = 10) {
     if (!engine) return;
-    engine.eraseCircle(u * engine.size, (1 - v) * engine.size, radius, 1.5);
-    renderer.markWound(u * engine.size, (1 - v) * engine.size, radius);
-    renderer.uploadState(engine.stateData, engine.size);
+    const x = u * engine.width;
+    const y = (1 - v) * engine.height;
+    engine.eraseCircle(x, y, radius, 1.5);
+    renderer.markWound(x, y, radius);
+    renderer.uploadState(engine.stateData, engine.width, engine.height);
     woundUntil = performance.now() + 1200;
     document.body.classList.add('has-drawn');
     updateStatus();
@@ -452,7 +588,11 @@ window.nca4plot = {
     }
     const mean = sum / count;
     return {
-      size: engine.size,
+      size: engine.width,
+      width: engine.width,
+      height: engine.height,
+      kind: engine.kind,
+      mode,
       steps: engine.steps,
       backend: sessionInfo.backend,
       mean,

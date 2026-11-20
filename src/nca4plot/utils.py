@@ -3,6 +3,11 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import matplotlib
+
+# Windows default TkAgg backend crashes long trainings with Tcl_AsyncDelete
+# ("main thread is not in main loop") when figures are created/destroyed.
+matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import numpy as np
 import torch

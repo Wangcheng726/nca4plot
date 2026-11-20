@@ -243,21 +243,54 @@ def load_font(size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+SHEET_LABELS = {
+    "regenerate": [
+        "1  MEMORY: THE WHOLE SKY",
+        "2  MEMORY REPLANTED",
+        "3  THE SKY IS TORN",
+        "4  THE WOUND REGROWS THE PAINTING",
+        "5  MEMORY HOLDS, MATTER DRIFTS",
+    ],
+    "growing": [
+        "1  MEMORY CONSTELLATION",
+        "2  CONSTELLATION -> WHOLE SKY",
+        "3  THE SKY IS TORN",
+        "4  WOUND EDGE REWEAVING",
+        "5  GROWN MEMORY",
+    ],
+    "persistent": [
+        "1  MATURE DRIFT",
+        "2  ZERO -> GROWTH",
+        "3  THE SKY IS TORN",
+        "4  WOUND EDGE REWEAVING",
+        "5  NEVER SETTLING",
+    ],
+}
+
+
 def save_contact_sheet(
     path: Path,
     mature_path: Path,
     frames: list[tuple[float, bytes]],
     marks: dict[str, float],
+    mode: str = "persistent",
 ) -> None:
     start = frames[0][0]
     tear = marks["tear_start"]
+    labels = SHEET_LABELS[mode]
     picks = [
-        (Image.open(mature_path).convert("RGB"), "1  MATURE DRIFT"),
-        (decode_jpeg(nearest_frame(frames, tear - 3.8)), "2  ZERO -> GROWTH"),
-        (decode_jpeg(nearest_frame(frames, tear + 0.9)), "3  THE SKY IS TORN"),
-        (decode_jpeg(nearest_frame(frames, tear + 4.2)), "4  WOUND EDGE REWEAVING"),
-        (decode_jpeg(nearest_frame(frames, marks["end"] - 0.4)), "5  NEVER SETTLING"),
+        (Image.open(mature_path).convert("RGB"), labels[0]),
+        (decode_jpeg(nearest_frame(frames, tear - 3.8)), labels[1]),
+        (decode_jpeg(nearest_frame(frames, tear + 0.9)), labels[2]),
+        (decode_jpeg(nearest_frame(frames, tear + 4.2)), labels[3]),
+        (decode_jpeg(nearest_frame(frames, marks["end"] - 0.4)), labels[4]),
     ]
+    if mode == "growing":
+        # Reset replants the sparse memory constellation and the slow clock
+        # coalesces it over ~2 s; the boot poster is already a merged sky, so
+        # tiles 1-2 must come from the recorded regrowth arc, not the poster.
+        picks[0] = (decode_jpeg(nearest_frame(frames, start + 0.35)), labels[0])
+        picks[1] = (decode_jpeg(nearest_frame(frames, start + 1.1)), labels[1])
     tile_w, tile_h, gap, label_h = 640, 360, 18, 45
     columns = 3
     rows = 2
@@ -286,8 +319,8 @@ def capture_mobile(browser, url: str, path: Path) -> None:
         has_touch=True,
     )
     page = context.new_page()
-    page.goto(f"{url}?autostart=1&quality=128", wait_until="domcontentloaded")
-    wait_for_boot(page, 220)
+    page.goto(f"{url}?autostart=1&mode=regenerate", wait_until="domcontentloaded")
+    wait_for_boot(page, 460)
     page.screenshot(path=path)
     context.close()
     print(f"wrote {path}", flush=True)
@@ -296,6 +329,8 @@ def capture_mobile(browser, url: str, path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quality", type=int, default=512, choices=[128, 256, 512])
+    parser.add_argument("--mode", default="regenerate",
+                        choices=["regenerate", "growing", "persistent"])
     parser.add_argument("--duration", type=float, default=17.0)
     parser.add_argument("--out-dir", type=Path, default=MEDIA_DIR)
     parser.add_argument("--url", default=None, help="Use an existing server instead of starting one")
@@ -318,11 +353,12 @@ def main() -> None:
             device_scale_factor=1,
         )
         page = context.new_page()
+        quality = f"&quality={args.quality}" if args.mode == "persistent" else ""
         page.goto(
-            f"{url}?autostart=1&quality={args.quality}",
+            f"{url}?autostart=1&mode={args.mode}{quality}",
             wait_until="domcontentloaded",
         )
-        wait_for_boot(page, 560)
+        wait_for_boot(page, {"regenerate": 460, "growing": 60, "persistent": 560}[args.mode])
         page.wait_for_timeout(900)
 
         poster_site = args.out_dir / "poster_nca4plot.png"
@@ -331,7 +367,8 @@ def main() -> None:
 
         page.add_style_tag(
             content=(
-                ".masthead,.status-pill,.top-actions,.gesture-note,.controls,.colophon,.cursor,.toast"
+                ".masthead,.status-pill,.top-actions,.gesture-note,.controls,.mode-control,"
+                ".colophon,.cursor,.toast"
                 "{display:none!important}.edge-shade{opacity:.55}"
             )
         )
@@ -360,6 +397,7 @@ def main() -> None:
             poster_art,
             frames,
             marks,
+            mode=args.mode,
         )
         context.close()
 

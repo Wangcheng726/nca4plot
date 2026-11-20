@@ -1,284 +1,167 @@
 # 永不落定的星空 / A Sky That Never Settles
 
-> 一片会生长、会受伤、会自愈、永不落定的《星空》式天空。  
-> 由作者亲手训练的 **5,856 参数** texture NCA 驱动，全程在浏览器本地运行。
+> 一片会流动、会受伤、会把伤口长回原画的《星空》。  
+> 由作者亲手训练的 **两个各 5,856 参数** 的神经细胞自动机（NCA）驱动，全程在浏览器本地运行。
 
-**在线作品：[https://wangcheng726.github.io/nca4plot/](https://wangcheng726.github.io/nca4plot/)**（2026-11-19 已通过 WebGPU / WASM 公网验收）
+**在线作品：[https://wangcheng726.github.io/nca4plot/](https://wangcheng726.github.io/nca4plot/)**
 
 ![作品静帧](media/poster_sky_1920x1080.png)
 
 ## 作品一句话
 
-观众拖拽并撕开天空；被擦除的不是一层贴图，而是神经细胞自动机的真实 12 通道状态。松手后，残余细胞依据同一套局部规则重新协商边界、长出旋涡，继续流动。没有目标图可回退，也没有最终帧。
+观众拖拽撕开天空；被擦除的不是一层贴图，而是 NCA 的真实 12 通道状态。松手后，残余细胞依据同一套局部规则把缺口长回《星空》本来的笔触。艺术观念：**星空不是状态，而是过程**——可以被记住的过程、正在发生的过程、永不落定的过程。
 
-艺术观念是：**星空不是状态，而是过程。**
+## 三种时间观（对应 Distill Growing-CA 的三种演示）
+
+| 模式 | 初始状态 | 擦除之后 | 模型 |
+| --- | --- | --- | --- |
+| **再生 regenerate**（默认） | 整幅《星空》本身（记忆启动） | 伤口从边缘长回原画的笔触与颜色 | 目标 NCA（Growing-CA 式） |
+| **生长 growing** | 稀疏记忆星群（约 60% 像素携带原画色素） | 星点自组织、合并成整幅《星空》 | 目标 NCA（同一 256×144 权重） |
+| **永动 persistent** | 零种子长出的天空纹理 | 自行重新组织，不朝向任何记忆 | 纹理 NCA（Self-Organising Textures 式） |
+
+再生模式的"记忆"不是贴图层：初始状态（RGBA=原画、隐通道=0）是被训练进规则里的不动点，其后的每一帧运动仍只来自 NCA 推理；渲染着色器只增强厚涂材质，不产生任何运动。
 
 ## 操作
 
-- **拖拽 / 触摸并拖动**：擦除天空，制造裂口。
-- **松手**：让伤口从边缘重新织合。
-- **暂停 / 继续**：观察某个瞬间，或让流动继续；也可按空格。
-- **重新生长**：把状态清零，从一颗零种子重新开始。
-- **质感**：切换 `128 / 256 / 512` 三档模拟分辨率。
-- **作品说明**：阅读艺术观念、科学边界与技术信息。
-- **全屏**：进入无干扰观看。
+- **拖拽 / 触摸拖动**：擦除天空（清除笔刷内全部 12 通道）。
+- **滚轮**：笔刷大小。
+- **空格 / 暂停按钮**：暂停与继续。
+- **R / 重置按钮**：按当前模式重置（再生=回到完整原画；生长=回到一片新的随机记忆星群；永动=零种子）。
+- **模式按钮**：regenerate / growing / persistent 切换。
+- **质感 128 / 256 / 512**：仅永动模式可选（`1/2/3` 键）。
+- **作品说明 / 全屏**：观念与文献；无干扰观看。
 
-初次打开会下载 ONNX Runtime Web 的相应后端文件，请预留约 30–40 MB 流量。支持 WebGPU 的浏览器优先使用 GPU；否则自动回退到 WASM。
+支持 WebGPU 的浏览器优先 GPU 推理，否则自动回退 WASM。首次打开需下载 ONNX Runtime Web 后端（约 30–40 MB）。
 
 ## 技术与科学
 
-### 一个小模型，而不是一张会动的图
+### 两个小模型，同一套语法
 
-模型严格采用 Distill / Google Research 的 texture NCA 路线，核心配置如下：
-
-| 项目 | 配置 |
+| 项目 | 配置（两模型相同） |
 | --- | --- |
-| 参数 | **5,856** 个可训练参数 |
-| 状态 | 12 通道，前 3 通道为 RGB，后 9 通道为隐藏物质 |
-| 感知 | identity / Sobel X / Sobel Y / Laplacian，四固定核，circular padding |
-| 更新 | `Conv2d(48→96, 1×1)` + ReLU → `Conv2d(96→12, 1×1, bias=False)`，输出层零初始化 |
-| 随机性 | 每步约 50% 细胞异步更新；训练时随机步长 `32–95` |
-| 生长 | 从全零 128px 种子开始，不使用目标图作为 Web 端输入 |
-| 损失 | VGG16 层 `[1, 6, 11, 18, 25]` + sliced optimal transport + overflow loss |
+| 参数 | 各 **5,856** 个可训练参数 |
+| 状态 | 12 通道；目标模型前 4 通道为 RGBA∈[0,1]（零=透明=死亡），纹理模型前 3 通道 RGB |
+| 感知 | identity / Sobel X / Sobel Y / Laplacian 四固定核，circular padding |
+| 更新 | `Conv2d(48→96,1×1)`+ReLU → `Conv2d(96→12,1×1,bias=False)`，输出层零初始化 |
+| 异步 | 每步约 50% 细胞随机更新 → 永不重复的流动 |
+| 生命门 | 目标模型：3×3 max-pool alpha 门，死细胞不自发复活、活细胞不猝死 |
 
-`pool` 中每 8 步把一个样本重播种为零状态。训练因此同时见到“从零生长”和“成熟纹理继续漂移”的状态。网页端不加载 exemplar：擦除后的重组完全由局部规则完成。
+### 目标模型：把整幅画训练成不动点
 
-### 为什么擦除后能自愈
+目标为**整幅《星空》256×144**（含月亮、星晕、旋涡、柏树剪影；公有领域扫描，见 `data/target_metadata.json`），不是局部纹理裁剪。训练池 256 个状态，一半以"活着的画本身"启动（与网页再生模式启动状态逐像素一致），一半从单细胞种子、重度损伤与残岛状态启动；对池状态施加随机圆形损伤（1–3 个圆盘，半径 6–17% 短边）。
 
-NCA 的每个细胞只读取近邻，却通过反复迭代形成全局旋涡。擦除把一块区域的所有通道清零，相当于抹去局部记忆；周围仍保有纹理状态的细胞继续更新，边界上的差异会驱动新的笔触向内生长。这里没有一个“修复模块”，生长与修复是同一个动力学过程的两种观察方式。
+损失与课程（`src/nca4plot/train_target.py`）：
+
+- **伤口加权 RGBA MSE**：损伤圆盘内权重 ×8。伤口只占画面 ~3%，普通全图 MSE 会让模型把"填平均色灰痂"学成稳定吸引子；加权后再生信号占损失的约四分之一。
+- **Sobel 梯度 MSE（伤口同权 ×0.5）**：平涂没有边缘，该项迫使伤口长回笔触结构而不是灰雾。
+- **VGG 感知锚（×0.15）**：VGG16 五层特征的逐像素 MSE，按层归一化、伤口区域下采样掩码同权 ×8。Sobel 只看 3×3 边缘，VGG 看五个尺度的笔触纹理；与 OT（分布匹配）不同，特征 MSE 把笔触约束在记忆中的位置。
+- **overflow loss**：约束状态不越界。
+- **去噪锚**：接近原画的池状态以 50% 概率加小噪声（RGBA σ∈[0.005,0.03]、隐通道 σ=0.05），训练"从扰动回到原画"，抑制长时程漂移。
+- **长时程 rollout**：每 8 步一次 192–320 步稳定 rollout；种子样本 256–448 步生长 rollout；其余 64–96 步。网页观众一次看几十秒＝上千步，训练必须见过这个时程。
+- Adam 2e-3，milestones 2000/4000/6000 ×0.3，累计约 8500 步（含断点续跑，最终 checkpoint step 8501）；梯度范数归一化；gradient checkpointing。
+
+### 生长模式：记忆星群初始条件（为什么不是单细胞）
+
+官方 emoji 演示从单细胞长出目标，但那是**扁平色块**目标、且传播距离短。诊断（v7–v12，见 `checkpoints/nca_grow*_training_log.jsonl`、`checkpoints/probe_*.png`）表明：整幅连续色调《星空》在 256×144 与 128×72 上、单种子或残岛出发的 frontier 传播都停在"平均色灰雾"吸引子（growth_mse≈0.017–0.02 不动，加长 rollout 反而漂远）；而**被活画包围的伤口**向内再生始终优秀（regen_mse≈0.0006）。5,856 参数记不住"上百格外的色素位置"，但记得住"邻域记忆如何补全"。
+
+因此生长模式改用**稀疏记忆星群**初始条件：约 60% 像素随机携带原画 RGBA（隐通道 0），其余为死细胞。每个死细胞都紧邻活记忆，训练过的再生动力学于是把星群合并成整幅画——探针实测 60 步 mse 0.0033、240 步 0.0031（`checkpoints/probe_const60_nca_target.png`），与再生模式同权重、同网格。网页上生长模式以约 14 CA 步/秒的慢时钟运行（`stepsPerRun=1`），让观众看清"星点→整幅天空"的自组织；每次重置的星群随机分布不同，永不重复。
+
+### 纹理模型：永不落定的天空物质
+
+`src/nca4plot/train.py` 沿用官方 texture NCA：VGG16 层 `[1,6,11,18,25]` + sliced optimal transport + overflow，三块天空裁剪多 exemplar，无目标图、永不收敛。供永动模式使用。
+
+### 为什么擦除后能长回原画
+
+每个细胞只读近邻。擦除抹去局部记忆后，边界两侧的差异驱动更新向内传播；因为规则在训练里见过成千上万次"带伤口的整幅画→长回原画"的轨迹，再生是学出来的动力学，不是修复模块。生长与修复是同一过程的两面。
 
 ### 关于湍流，保持诚实
 
-《星空》的旋涡常被读作湍流的视觉直觉。NCA 的“局部规则 → 全局自组织”与湍流的“局部作用 → 涡旋级联”构成一种结构上的同构，这也是本作把科学与审美视为同一事件的方式。
-
-但关于《星空》亮度谱符合 Kolmogorov `−5/3` 律的 2024 年测量，2025 年已有同行评论，相关解释仍有争议。**本作借用的是“局部生成全局”的审美同构，不主张作品证明了物理定律。**
+《星空》旋涡常被读作湍流直觉；NCA"局部规则→全局自组织"与湍流"局部作用→涡旋级联"构成结构同构。但《星空》亮度谱符合 Kolmogorov −5/3 律的 2024 年测量在 2025 年已有同行评论，解释仍有争议。**本作借用审美同构，不主张证明物理定律。**
 
 ## 环境与复现
 
-### 已验证环境
-
-- Windows 11
-- NVIDIA RTX 5070 Ti 16 GB（Blackwell `sm_120`）
-- NVIDIA 驱动支持 CUDA 12.8+
-- Python 3.12
-- PyTorch `2.9.1+cu128`
-- CUDA 12.8
-- `uv` 管理依赖
-
-Blackwell 显卡需要较新的 PyTorch/CUDA。若 `torch.cuda.is_available()` 为 `False`，先检查驱动与 PyTorch 的 CUDA 版本，而不是继续训练。
-
-### 安装与 GPU 自检
+已验证：Windows 11 · RTX 5070 Ti 16 GB（Blackwell sm_120）· Python 3.12 · PyTorch 2.9.1+cu128 · CUDA 12.8 · uv。Blackwell 需 CUDA 12.8+ 的 PyTorch；若 `torch.cuda.is_available()` 为 False，先查驱动与 CUDA 版本。
 
 ```powershell
 uv sync
-uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NO GPU')"
-```
+uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 
-本机正式训练输出为 `2.9.1 12.8 True` 与 `NVIDIA GeForce RTX 5070 Ti`。
+# 1. 整幅目标（已随仓库提供 data/target_sky_256x144.png）
+uv run python -m nca4plot.prepare_target
 
-### 1. 准备《星空》天空 exemplar
+# 2. 目标模型训练（约 8500 步，约 1–2 小时，5070 Ti；可断点续跑）
+uv run python -m nca4plot.train_target --steps 8500 --milestones 2000 4000 6000 --out checkpoints/nca_target.pt
 
-源图已随仓库提供，来自 Wikimedia Commons / Google Art Project 的公有领域二维作品扫描。裁剪框避开月亮、柏树、村庄与山丘：
+# 3. 纹理模型（永动模式）
+uv run python -m nca4plot.train --steps 6000 --out checkpoints/nca_starry.pt
 
-```powershell
-uv run python -m nca4plot.prepare_exemplar --candidate A-core-swirl
-```
+# 4. 导出 ONNX 到 web/models（目标模型每次推理 2 步，与网页 masks 维度一致）
+uv run python -m nca4plot.export_onnx --kind target --target-steps 2 --checkpoint checkpoints/nca_target.pt
+uv run python -m nca4plot.export_onnx --kind texture --checkpoint checkpoints/nca_starry.pt
 
-输出：
+# 5. 本地运行（零构建静态站点）
+python -m http.server 8765 --directory web --bind 127.0.0.1
+# 打开 http://127.0.0.1:8765/
 
-- `data/exemplar_128.png`：实际训练用 128×128 天空局部
-- `data/exemplar_metadata.json`：源图、裁剪框、SHA256 和许可信息
-- `media/exemplar_candidates.jpg`：三个候选裁剪对比
-
-### 2. 训练
-
-```powershell
-uv run python -m nca4plot.train `
-  --exemplars data/exemplar_A-core-swirl.png data/exemplar_B-upper-current.png data/exemplar_C-east-current.png `
-  --steps 6000 --out checkpoints/nca_starry.pt
-```
-
-正式训练使用**三块天空裁剪（A 核心旋涡 / B 上方洋流 / C 东侧洋流）作为多 exemplar**：每个 batch 样本随机抽取一块裁剪计算 VGG 风格目标，使笔触更厚、方向更多变，避免单 exemplar 过拟合出单调纹样。单 exemplar 5000 步的对照权重保留为 `checkpoints/nca_starry_single.pt`。
-
-正式训练参数：
-
-- `pool=256`，`batch=4`，`train_size=128`
-- 每步随机 `step_n ∈ [32, 96)` 反传
-- 每 8 步将一个零种子写回 pool
-- Adam `lr=1e-3`；MultiStepLR milestones `[1000, 2000]`，gamma `0.3`
-- 梯度范数归一化
-- 6000 steps，RTX 5070 Ti 实测约 **683 秒**，峰值 reserved 显存约 **1.4 GB**
-
-训练日志和采样图位于 `checkpoints/training_log.jsonl`、`checkpoints/samples/`。
-
-如需从断点恢复：
-
-```powershell
-uv run python -m nca4plot.train --steps 5000 --resume-state checkpoints/internal/last_state.pt
-```
-
-### 3. 导出网页模型
-
-```powershell
-uv run python -m nca4plot.export_onnx --checkpoint checkpoints/nca_starry.pt --sizes 128 256 512
-```
-
-导出器生成：
-
-- `checkpoints/nca_starry_128.onnx`（每次推理 4 步）
-- `checkpoints/nca_starry_256.onnx`（每次推理 4 步）
-- `checkpoints/nca_starry_512.onnx`（每次推理 2 步，控制 GPU 单次负载）
-- `checkpoints/nca_starry_model.pt`（仅权重的可移植 checkpoint）
-- `checkpoints/nca_starry_weights.json`
-- `checkpoints/export_report.json`（SHA256 与 PyTorch/ONNX 误差）
-- `web/models/` 下的同名 ONNX 文件
-
-已验证 PyTorch 与 ONNX Runtime 最大绝对误差：128 为 `2.98e-8`，256 为 `4.47e-8`，512 为 `1.86e-8`。
-
-### 4. 本地运行网页
-
-```powershell
-uv run python -m http.server 8000 -d web
-```
-
-打开 <http://localhost:8000/>。必须通过 HTTP 服务访问；直接双击 `index.html` 可能因 ES modules、WASM 路径和跨域策略而失败。
-
-### 5. 生成展示媒体
-
-```powershell
-uv run python scripts/capture_web.py --quality 512 --duration 17
-```
-
-脚本会启动本地服务器、用本机 Chrome 捕获真实 WebGPU 画面，并生成 MP4、GIF、海报、过程图和手机布局截图。需要安装 Chrome；媒体编码使用项目 dev 依赖中的 `imageio[ffmpeg]`。
-
-### 6. 本地效果验证
-
-```powershell
-uv run python -m http.server 8765 -d web --bind 127.0.0.1
-uv run python scripts/verify_local.py http://127.0.0.1:8765/ 256 final
-```
-
-脚本用本机 Chrome（headless WebGPU）做四项客观检查，截图与 JSON 报告写入 `media/iterate/`：
-
-- **流动强度**：间隔 0.4s 两帧的平均绝对差（当前约 24.6/255，画面持续运动）；
-- **频闪**：暂停 CA 后连续 11 帧的最大帧间差（当前约 0.0018/255，即静止画面零闪烁）；
-- **笔刷对齐**：暂停态真实鼠标笔画，伤口质心与光标在状态空间的偏差（当前约 0.22 细胞）；
-- **自愈**：擦除细胞数与恢复后纹理方差，另附生长序列截图（零种子 60 步即出现星空笔触）。
-
-渲染器材质参数可在控制台实时调整：`window.nca4plot.renderer.grade = {contrast, sat, relief, spec, edge}`。
-
-### 渲染：材质增强，运动只来自 NCA
-
-WebGL2 后处理只做"厚涂材质"，不制造任何假流动：笔触方向场是**静态** curl-noise（不随帧旋转），纤维 relief 与纸面 grain 也是静态纹理；可见度 alpha 取隐藏通道幅值与色彩活性的较大者，并做 EMA 时间平滑，因此异步更新不会造成逐帧黑白频闪。色彩分级（对比 / 饱和 / 暗轮廓）只放大 NCA 自己长出的钴蓝、群青与奶油色结构。早期版本的三个缺陷——隐藏通道阈值门控导致的频闪、笔刷垂直镜像错位、笔刷纹理高频梳状纹——已分别以时间平滑 alpha、`UNPACK_FLIP_Y_WEBGL` 上传、重生成低频 `brush.png` 修复。撕裂瞬间另有一层**指数衰减的 scar 场**（约 0.9s 半衰期，暂停时冻结）把伤口压成深夜色：NCA 回填的灰色 primer 组织先从黑暗中显影、再长出颜料，避免活体状态下伤口读作灰抹痕。scar 只调制材质可见度，不产生任何运动。
-
-## 交付物索引
-
-| 交付物 | 位置 |
-| --- | --- |
-| 可分享网页源码 | `web/` |
-| 训练代码 | `src/nca4plot/` |
-| 正式 checkpoint | `checkpoints/nca_starry.pt` |
-| 可移植权重 | `checkpoints/nca_starry_model.pt` |
-| JSON 权重 | `checkpoints/nca_starry_weights.json` |
-| 网页 ONNX 模型 | `web/models/*.onnx` |
-| 训练日志与采样 | `checkpoints/training_log.jsonl`、`checkpoints/samples/` |
-| 作品说明 | [`docs/artwork_statement.md`](docs/artwork_statement.md) |
-| 展示视频 | [`media/nca4plot_demo.mp4`](media/nca4plot_demo.mp4) |
-| GIF | [`media/nca4plot_demo.gif`](media/nca4plot_demo.gif) |
-| 过程图 | [`media/process_contact_sheet.jpg`](media/process_contact_sheet.jpg) |
-| 高清静帧 | `media/poster_nca4plot.png`、`media/poster_sky_1920x1080.png` |
-| 部署工作流 | `.github/workflows/pages.yml` |
-
-### 模型哈希
-
-```text
-nca_starry.pt
-f426e34397dd41dba4e6be93560f7250fdffc34e2850ec0c649f981df89fe07b
-
-nca_starry_model.pt
-a49c1d18dcb18f715cf02bcbdadcf2d726e2af29d2c120e9d1d8775e1f1915ea
-
-nca_starry_weights.json
-3943a00ac0597b0bef4d6d9753e3cdb98617b6a4c2be4e5e96c775bcb4b383fc
-```
-
-## 部署
-
-仓库包含 GitHub Pages workflow。推送到 `main` 后，Actions 会部署 `web/` 目录；也可在 GitHub Actions 页面手动触发 `workflow_dispatch`。
-
-若首次启用 Pages，在仓库的 **Settings → Pages → Build and deployment** 中选择 **GitHub Actions**。工作流需要 `pages: write` 和 `id-token: write` 权限，配置已写在 workflow 中。
-
-本次交付已部署并通过公网验收：
-
-<https://wangcheng726.github.io/nca4plot/>
-
-2026-11-19 实测首页、三个 ONNX 模型和 ORT 资源均返回 200；Chromium 下 WebGPU 主路径与 WASM 回退各完成一次运行，并检查了持续步进、暂停、鼠标擦除自愈、512 档切换和 390×844 移动端布局。
-
-## 测试
-
-```powershell
+# 6. 测试与录屏
 uv run pytest
+uv run python scripts/capture_web.py --mode regenerate
+uv run python scripts/capture_web.py --mode persistent
 ```
 
-覆盖内容：
+训练日志 `checkpoints/nca_target_training_log.jsonl`；每 500 步四联样本 `checkpoints/samples_nca_target/step_XXXXX_comparison.png`（TARGET / STABLE400 / GROWN400 / REGEN200）。
 
-- 参数量精确为 5,856
-- circular padding、1×1 输入与非方形输入
-- 零种子与 12 通道擦除
-- 交付 checkpoint 可擦除后继续推理
-- 三档 ONNX 存在、元数据完整且与网页模型逐字节一致
-- 256 图 PyTorch/ONNX 数值对齐
-- 真实浏览器 WebGPU/WASM 启动、流动、暂停、擦除、自愈、复位、切换画质
-- 390×844 手机布局无横向溢出
+## 实测验收
 
-浏览器测试需要本机 Chrome；未安装时相关测试会明确跳过。
+验收命令：`python scripts/verify_local.py <url> <mode> <tag>`（Chrome headless · WebGPU · 1600×900），截图与报告见 `media/iterate/<tag>_*.png / .json`；本轮标签 `iter2001_regen / iter2001_growing / iter2001_persist`。mse＝RGBA［0,1］对 `data/target_sky_256x144.png` 的均方误差（隔 2 像素采样）；频闪＝暂停后相邻帧平均绝对差（0–255）；对齐＝擦除区质心与笔刷映射质心之差（cells）。
 
-## 目录结构
+| 模式 | 网格 | 初始状态 | 擦除愈合后整幅 mse | 伤口区 mse | 暂停频闪 max | 笔刷对齐 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 再生 regenerate | 256×144 | 即原画：mse 0.00011 | 0.00031 | 0.0056 | 0.0024 | 0.12 cells |
+| 生长 growing | 256×144 | 记忆星群：step≈4 时约 60% 像素携带原画记忆 | 0.00386 | 0.00643 | 0.0027 | 0.12 cells |
+| 永动 persistent | 256×256 | 无目标图，纹理从零生长 | —（无目标） | — | 0.0021 | 0.18 cells |
 
-```text
-nca4plot/
-├─ data/                 # 公有领域源图、天空裁剪、exemplar metadata
-├─ src/nca4plot/         # 模型、损失、训练、rollout、ONNX 导出
-├─ checkpoints/          # 正式权重、日志、训练采样和导出报告
-├─ web/                  # 纯静态交互网页、ONNX Runtime Web、模型资源
-├─ media/                # 海报、GIF、MP4、过程图、手机截图
-├─ docs/                 # 作品说明
-├─ scripts/capture_web.py
-├─ tests/
-└─ .github/workflows/pages.yml
-```
+- **流动**：相邻帧差 regenerate 0.040、growing 0.205（慢时钟自组织）、persistent 26.06（永不静止）；暂停后三模式帧差均 ≤0.0027，**无频闪**。
+- **与旧版对比**：旧 growing（v6b，`media/iterate/v6b4001g_*`）愈合 mse 0.0213＝平均色灰雾；本轮 0.00386＝可辨认整幅原画，约 5.5× 改善。旧公网只有纹理模式、初始状态不是原画（`media/iterate/public_pre_stroke.png`）。
+- **生长 boot 门**（`tests/test_web.py`）：alpha 在数步内铺满，故星群阶段按"每细胞保真度"度量——step≈6–14 暂停时钟，接近原画的细胞占比 ∈(0.35, 0.85) 且整幅 mse>0.006（仍是星群而非成品）；step≥240 要求 mse<0.012。实测 boot close≈0.69 / mse≈0.011，240 步 mse≈0.0035 / close≈0.90（`scripts/probe_boot_gates.py`）。
+- **Python 侧**：模型恰好 5,856 参数；ONNX↔PyTorch 最大绝对差 2.09e-7（`checkpoints/export_target_report_256x144.json`）；星群探针 60 步 mse 0.0033、240 步 0.0031（`checkpoints/probe_const60_nca_target.png`）。
+- **pytest 全绿**：参数量、生命门、ONNX parity、浏览器端到端（初始 mse<0.012、擦除 12 通道清零、伤口 mse<0.02、三模式切换、移动端布局）。
+- 演示视频：`media/nca4plot_demo.mp4 / .gif`（再生）、`media/growing/`（星群→整幅天空）、`media/persistent/`（永动），各含海报与过程接触表。
+
+## 交付索引
+
+- `web/`：零构建静态站点（index.html / js / styles / models / vendor），GitHub Pages 直接发布。
+- `src/nca4plot/`：模型、损失、prepare_target / prepare_exemplar、train_target / train、export_onnx、rollout。
+- `checkpoints/`：权重（.pt）、ONNX、训练日志、样本、eval json。
+- `docs/artwork_statement.md`：作品说明（三种时间观＋科学边界＋文献）。
+- `media/`：演示 MP4 / GIF / 海报 / 过程接触表 / 迭代验收截图。
+- `tests/`：模型参数量、生命门、ONNX parity、浏览器端到端（初始 mse、擦除清零、伤口再生、三模式、移动端）。
+- `scripts/verify_local.py`：三模式本地验收（频闪、笔刷对齐、mse、流动差分）。
 
 ## 已知限制
 
-- 这是**纯天空纹理作品**，不包含月亮、柏树、村庄或完整《星空》构图。加入固定构图应走 texture grafting 或区域混合，不属于本次已验收版本。
-- WebGPU 不可用时会回退到 WASM；512 档在移动端或 CPU 后端可能明显变慢。
-- 画面是实时随机动力学，无法逐像素复现某一历史帧；模型权重、种子逻辑与训练过程可复现。
-- 笔触是面向屏幕的实时渲染与后处理，不是物理颜料，也没有实体输出。
+- **生长模式不是单细胞启动**：单细胞 frontier 在 5,856 参数下长不出连续色调原画（v7–v12 诊断在案）；生长模式以稀疏记忆星群为初始条件，自组织结果是印象式近似（全图 mse≈0.003），笔触细节略软于再生模式。
+- **再生是局部记忆重建**：伤口长回原画的笔触与颜色分布，极大伤口或反复撕裂处可能有轻微笔触差异，不是像素级完美修复。
+- WebGPU 不可用时回退 WASM，速度明显变慢；512 档仅建议桌面 GPU。
+- 画面是实时随机动力学，无法逐像素复现某一历史帧；权重、种子逻辑与训练过程可复现。
+- 笔触质感是实时渲染材质，不是物理颜料，无实体输出。
 
 ## 文献与先例
 
-- Mordvintsev et al., [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca/), Distill, 2020.
+- Mordvintsev, Randazzo, Niklasson & Levin, [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca/), Distill, 2020.（regenerate / growing / persistent 三模式与损伤再生的直接先例）
 - Mordvintsev et al., [Self-Organising Textures](https://distill.pub/selforg/2021/textures/), Distill, 2021.
-- Google Research, [texture_nca_pytorch.ipynb](https://github.com/google-research/self-organising-systems/blob/master/notebooks/texture_nca_pytorch.ipynb).
-- Ma, Cheng, Huang, Schmitt, Lin & Huang, “Hidden turbulence in van Gogh’s *The Starry Night*,” *Physics of Fluids* 36(9), 095140, 2024. [arXiv:2310.03415](https://arxiv.org/abs/2310.03415), DOI `10.1063/5.0213627`.
-- Gad-el-Hak, Bourgault, Riley & Chavanne, “Comment on ‘Hidden turbulence in van Gogh’s *The Starry Night*’,” *Physics of Fluids* 37(12), 129101, 2025. DOI `10.1063/5.0306945`.
-- Aragón et al., “Turbulent Luminance in Impassioned van Gogh Paintings,” *Journal of Mathematical Imaging and Vision* 30(3), 275–283, 2008. [arXiv:physics/0606246](https://arxiv.org/abs/physics/0606246).
-- Znah, [Hexells](https://znah.net/hexells/).
-- Sakana AI, [Digital Ecosystem](https://pub.sakana.ai/digital-ecosystem/).
-- DyNCA, [Dynamic Neural Cellular Automata](https://dynca.github.io/).
-- [cells2pixels](https://arxiv.org/abs/2506.22899), 2025（仅作为后续高分辨率显示方向的参考，不在本版实现内）。
+- Google Research, [self-organising-systems](https://github.com/google-research/self-organising-systems)（texture_nca_pytorch.ipynb，Apache-2.0）。
+- Ma et al., "Hidden turbulence in van Gogh's *The Starry Night*," *Physics of Fluids* 36(9), 095140, 2024. [arXiv:2310.03415](https://arxiv.org/abs/2310.03415).
+- Gad-el-Hak et al., "Comment on 'Hidden turbulence in van Gogh's *The Starry Night*'," *Physics of Fluids* 37(12), 129101, 2025.
+- Aragón et al., "Turbulent Luminance in Impassioned van Gogh Paintings," *JMIV* 30(3), 2008. [arXiv:physics/0606246](https://arxiv.org/abs/physics/0606246).
+- Znah, [Hexells](https://znah.net/hexells/)；Sakana AI, [Digital Ecosystem](https://pub.sakana.ai/digital-ecosystem/)；[DyNCA](https://dynca.github.io/)。
 
 ## 许可与致谢
 
-- 本项目原创代码：MIT，见 [`LICENSE`](LICENSE)。
-- 训练权重：CC BY 4.0。
-- Van Gogh, *The Starry Night* (1889)：公有领域二维作品，来源与扫描信息见 `data/exemplar_metadata.json`。
-- 训练路线来自 Google Research `self-organising-systems`，上游代码为 Apache License 2.0。
-- ONNX Runtime Web 遵循其自身许可。
-
-完整第三方许可见 [`LICENSES.md`](LICENSES.md)。
+- 原创代码 MIT（`LICENSE`）；训练权重 CC BY 4.0。
+- Van Gogh, *The Starry Night* (1889)：公有领域二维作品，来源与 SHA256 见 `data/target_metadata.json` 与 `data/exemplar_metadata.json`。
+- 上游训练路线 Apache-2.0；ONNX Runtime Web 遵循其自身许可；完整第三方许可见 `LICENSES.md`。
 
 ---
 
-作者：Wang Cheng · 2026  
-艺术与科学课程作品
+作者：Wang Cheng · 2026 · 艺术与科学课程作品

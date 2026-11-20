@@ -14,6 +14,22 @@ checkpoints/refine/
 checkpoints/rollouts_diag/
 checkpoints/compare/*/*.gif
 data/ort-web.tgz
-$null
 
 media/iterate/
+
+checkpoints/internal_*/
+checkpoints/smoke_*
+
+checkpoints/*_latest.pt
+checkpoints/*_model.pt
+checkpoints/probe_*
+checkpoints/remnant_*.png
+checkpoints/long_*.png
+checkpoints/heal_diag.png
+checkpoints/flat_target_preview.png
+checkpoints/samples_smoke_*/
+checkpoints/samples_nca_target_v1_collapsed/
+checkpoints/samples_nca_target_v2_seedonly/
+checkpoints/wound_heal_*.png
+checkpoints/wound_target_crop.png
+data/target_sky_128x72_flat.png

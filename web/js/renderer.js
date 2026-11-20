@@ -20,26 +20,31 @@ out vec4 outColor;
 uniform sampler2D uSky;
 uniform sampler2D uBrush;
 uniform vec2 uResolution;
-uniform float uSize;
+uniform vec2 uCaSize;
+uniform float uContain;
 uniform float uContrast;
 uniform float uSat;
 uniform float uRelief;
 uniform float uSpec;
 uniform float uEdge;
+uniform float uBlueShift;
 
 float luminance(vec3 color) {
   return dot(color, vec3(0.2126, 0.7152, 0.0722));
 }
 
-vec2 coverUv(vec2 uv) {
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 p = uv;
-  if (aspect > 1.0) {
-    p.y = 0.5 + (uv.y - 0.5) / aspect;
+// Screen UV -> CA UV. "cover" fills the window (square texture mode);
+// "contain" fits the whole painting inside the window (target modes).
+vec2 mapUv(vec2 uv) {
+  float sa = uResolution.x / max(uResolution.y, 1.0);
+  float ca = uCaSize.x / max(uCaSize.y, 1.0);
+  vec2 p = uv - 0.5;
+  if (uContain > 0.5) {
+    if (sa > ca) p.x *= sa / ca; else p.y *= ca / sa;
   } else {
-    p.x = 0.5 + (uv.x - 0.5) * aspect;
+    if (sa > ca) p.y *= ca / sa; else p.x *= sa / ca;
   }
-  return p;
+  return p + 0.5;
 }
 
 float hash21(vec2 p) {
@@ -82,7 +87,16 @@ vec2 strokeDir(vec2 uv) {
 }
 
 void main() {
-  vec2 uv = coverUv(vUv);
+  vec2 uv = mapUv(vUv);
+
+  // Letterbox around the contained painting: deep night, static grain only.
+  if (uContain > 0.5 && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) {
+    vec3 night = vec3(0.004, 0.008, 0.016);
+    night += (hash21(gl_FragCoord.xy) - 0.5) * 0.012;
+    outColor = vec4(night, 1.0);
+    return;
+  }
+
   vec4 sky = texture(uSky, uv);
   vec3 raw = clamp(sky.rgb, 0.0, 1.0);
   float matter = sky.a;
@@ -103,7 +117,7 @@ void main() {
   vec3 col = (raw - 0.5) * uContrast + 0.5;
   float luma = luminance(col);
   col = mix(vec3(luma), col, uSat);
-  col = mix(col, col * vec3(0.86, 0.95, 1.12), smoothstep(0.45, 0.12, luma) * 0.45);
+  col = mix(col, col * vec3(0.86, 0.95, 1.12), smoothstep(0.45, 0.12, luma) * uBlueShift);
   col += vec3(0.045, 0.032, 0.004) * smoothstep(0.62, 0.95, luma);
 
   // Impasto thickness: static fibre relief modulates pigment density.
@@ -120,7 +134,7 @@ void main() {
   col += vec3(0.95, 0.86, 0.62) * specular * uSpec * (0.4 + 0.6 * smoothstep(0.4, 0.9, luma));
 
   // Dark contours between impasto strokes, driven only by the live CA field.
-  vec2 tx = 1.0 / vec2(uSize);
+  vec2 tx = 1.0 / uCaSize;
   float lc = luminance(texture(uSky, uv + vec2(tx.x, 0.0)).rgb);
   float lw = luminance(texture(uSky, uv - vec2(tx.x, 0.0)).rgb);
   float ln = luminance(texture(uSky, uv + vec2(0.0, tx.y)).rgb);
@@ -189,6 +203,13 @@ function loadImage(url) {
   });
 }
 
+const GRADE_PRESETS = {
+  // The texture model invents its own palette; push it toward cobalt/cream.
+  texture: { contrast: 1.18, sat: 1.26, relief: 0.10, spec: 0.03, edge: 0.26, blueShift: 0.45 },
+  // The target model already IS the painting; grade it gently, keep it legible.
+  target: { contrast: 1.06, sat: 1.12, relief: 0.10, spec: 0.03, edge: 0.18, blueShift: 0.22 },
+};
+
 export class SkyRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -202,7 +223,10 @@ export class SkyRenderer {
     this.scar = null;
     this.lastUpload = 0;
     this.timeScale = 1;
-    this.grade = { contrast: 1.18, sat: 1.26, relief: 0.10, spec: 0.03, edge: 0.26 };
+    this.kind = 'texture';
+    this.grade = { ...GRADE_PRESETS.texture };
+    this.caWidth = 256;
+    this.caHeight = 256;
     this.size = 256;
     this.width = 1;
     this.height = 1;
@@ -239,12 +263,14 @@ export class SkyRenderer {
       sky: gl.getUniformLocation(this.program, 'uSky'),
       brush: gl.getUniformLocation(this.program, 'uBrush'),
       resolution: gl.getUniformLocation(this.program, 'uResolution'),
-      size: gl.getUniformLocation(this.program, 'uSize'),
+      caSize: gl.getUniformLocation(this.program, 'uCaSize'),
+      contain: gl.getUniformLocation(this.program, 'uContain'),
       contrast: gl.getUniformLocation(this.program, 'uContrast'),
       sat: gl.getUniformLocation(this.program, 'uSat'),
       relief: gl.getUniformLocation(this.program, 'uRelief'),
       spec: gl.getUniformLocation(this.program, 'uSpec'),
       edge: gl.getUniformLocation(this.program, 'uEdge'),
+      blueShift: gl.getUniformLocation(this.program, 'uBlueShift'),
     };
 
     this.skyTexture = createTexture(gl);
@@ -295,11 +321,18 @@ export class SkyRenderer {
     this.gl.viewport(0, 0, this.width, this.height);
   }
 
-  setSimulationSize(size) {
-    this.size = size;
-    this.pixels = new Uint8ClampedArray(size * size * 4);
-    this.activity = new Float32Array(size * size);
-    this.scar = new Float32Array(size * size);
+  setKind(kind) {
+    this.kind = kind === 'target' ? 'target' : 'texture';
+    this.grade = { ...GRADE_PRESETS[this.kind] };
+  }
+
+  setSimulationSize(width, height = width) {
+    this.caWidth = width;
+    this.caHeight = height;
+    this.size = width;
+    this.pixels = new Uint8ClampedArray(width * height * 4);
+    this.activity = new Float32Array(width * height);
+    this.scar = new Float32Array(width * height);
     this.lastUpload = 0;
   }
 
@@ -309,31 +342,68 @@ export class SkyRenderer {
     this.lastUpload = 0;
   }
 
+  // The on-screen rectangle occupied by the CA image, in client pixels.
+  // Single source of truth for both rendering and pointer mapping.
+  caScreenRect() {
+    const rect = this.canvas.getBoundingClientRect();
+    const screenAspect = rect.width / Math.max(rect.height, 1);
+    const caAspect = this.caWidth / Math.max(this.caHeight, 1);
+    const contain = this.kind === 'target';
+    let w;
+    let h;
+    if (contain ? screenAspect > caAspect : screenAspect < caAspect) {
+      h = rect.height;
+      w = h * caAspect;
+    } else {
+      w = rect.width;
+      h = w / caAspect;
+    }
+    return {
+      left: rect.left + (rect.width - w) / 2,
+      top: rect.top + (rect.height - h) / 2,
+      width: w,
+      height: h,
+    };
+  }
+
+  // Client point -> CA cell coordinates (y down = state row). Null when the
+  // point falls in the letterbox around a contained painting.
+  screenToCa(clientX, clientY) {
+    const r = this.caScreenRect();
+    const u = (clientX - r.left) / Math.max(r.width, 1);
+    const v = (clientY - r.top) / Math.max(r.height, 1);
+    if (this.kind === 'target' && (u < 0 || u > 1 || v < 0 || v > 1)) return null;
+    return { x: u * this.caWidth, y: v * this.caHeight };
+  }
+
   // Paint a decaying scar over freshly erased cells. This is a material-layer
   // memory of the wound (not motion): it holds the tear in deep night for a
-  // moment so the NCA's grey primer tissue reads as darkness, then fades while
+  // moment so the NCA's primer tissue reads as darkness, then fades while
   // real pigment regrows. Decay is frozen while the sky is paused.
   markWound(cx, cy, radius, soft = 1.5) {
-    if (!this.scar || this.size == null) return;
-    const n = this.size;
+    if (!this.scar) return;
+    const w = this.caWidth;
+    const h = this.caHeight;
     const outer = radius + soft;
     const x0 = Math.max(0, Math.floor(cx - outer));
-    const x1 = Math.min(n - 1, Math.ceil(cx + outer));
+    const x1 = Math.min(w - 1, Math.ceil(cx + outer));
     const y0 = Math.max(0, Math.floor(cy - outer));
-    const y1 = Math.min(n - 1, Math.ceil(cy + outer));
+    const y1 = Math.min(h - 1, Math.ceil(cy + outer));
     for (let y = y0; y <= y1; y += 1) {
       for (let x = x0; x <= x1; x += 1) {
         const d = Math.hypot(x - cx, y - cy);
         if (d > outer) continue;
         const fall = d <= radius ? 1 : 1 - (d - radius) / soft;
-        const i = y * n + x;
+        const i = y * w + x;
         if (fall > this.scar[i]) this.scar[i] = fall;
       }
     }
   }
 
-  uploadState(stateData, size) {
-    if (size !== this.size || !this.pixels) this.setSimulationSize(size);
+  uploadState(stateData, width, height = width) {
+    if (width !== this.caWidth || height !== this.caHeight || !this.pixels) {
+      this.setSimulationSize(width, height);
+    }
     const gl = this.gl;
     const pixels = this.pixels;
     const activity = this.activity;
@@ -342,26 +412,39 @@ export class SkyRenderer {
     const dt = this.lastUpload ? Math.min(100, now - this.lastUpload) : 0;
     this.lastUpload = now;
     const decay = Math.exp((-dt / 900) * (this.timeScale ?? 1));
-    const n2 = size * size;
+    const n2 = width * height;
+    const isTarget = this.kind === 'target';
     for (let i = 0; i < n2; i += 1) {
       const p = i * 4;
-      const r = stateData[i] + 0.5;
-      const g = stateData[n2 + i] + 0.5;
-      const b = stateData[n2 * 2 + i] + 0.5;
-      pixels[p] = r * 255;
-      pixels[p + 1] = g * 255;
-      pixels[p + 2] = b * 255;
-      // Activity = how far a cell is from the erased zero state. RGB distance
-      // from flat grey plus hidden-channel magnitude; temporally smoothed so
-      // asynchronous CA updates can never blink cells on/off between frames.
-      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      const sat = Math.max(r, g, b) - Math.min(r, g, b);
-      const hmag = Math.max(
-        Math.abs(stateData[n2 * 3 + i]),
-        Math.abs(stateData[n2 * 4 + i]),
-        Math.abs(stateData[n2 * 5 + i]),
-      );
-      const target = Math.min(1, Math.max(hmag * 1.7, sat * 1.6 + Math.abs(luma - 0.5) * 2.2));
+      let r;
+      let g;
+      let b;
+      let target;
+      if (isTarget) {
+        // RGBA lives directly in [0,1]; alpha IS the living-matter field.
+        r = stateData[i];
+        g = stateData[n2 + i];
+        b = stateData[n2 * 2 + i];
+        target = Math.min(1, Math.max(0, stateData[n2 * 3 + i]));
+      } else {
+        r = stateData[i] + 0.5;
+        g = stateData[n2 + i] + 0.5;
+        b = stateData[n2 * 2 + i] + 0.5;
+        // Activity = how far a cell is from the erased zero state. RGB distance
+        // from flat grey plus hidden-channel magnitude; temporally smoothed so
+        // asynchronous CA updates can never blink cells on/off between frames.
+        const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const sat = Math.max(r, g, b) - Math.min(r, g, b);
+        const hmag = Math.max(
+          Math.abs(stateData[n2 * 3 + i]),
+          Math.abs(stateData[n2 * 4 + i]),
+          Math.abs(stateData[n2 * 5 + i]),
+        );
+        target = Math.min(1, Math.max(hmag * 1.7, sat * 1.6 + Math.abs(luma - 0.5) * 2.2));
+      }
+      pixels[p] = Math.min(1, Math.max(0, r)) * 255;
+      pixels[p + 1] = Math.min(1, Math.max(0, g)) * 255;
+      pixels[p + 2] = Math.min(1, Math.max(0, b)) * 255;
       activity[i] += (target - activity[i]) * 0.45;
       scar[i] *= decay;
       pixels[p + 3] = activity[i] * (1 - scar[i]) * 255;
@@ -369,14 +452,14 @@ export class SkyRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.skyTexture);
     // Flip on upload so state row 0 appears at the TOP of the screen, matching
-    // the pointer mapping in app.js (y = (1 - uy) * size).
+    // the pointer mapping (screenToCa: y down = state row).
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
       gl.RGBA,
-      size,
-      size,
+      width,
+      height,
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
@@ -399,12 +482,14 @@ export class SkyRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.brushTexture);
 
     gl.uniform2f(this.locations.resolution, this.width, this.height);
-    gl.uniform1f(this.locations.size, this.size);
+    gl.uniform2f(this.locations.caSize, this.caWidth, this.caHeight);
+    gl.uniform1f(this.locations.contain, this.kind === 'target' ? 1 : 0);
     gl.uniform1f(this.locations.contrast, this.grade.contrast);
     gl.uniform1f(this.locations.sat, this.grade.sat);
     gl.uniform1f(this.locations.relief, this.grade.relief);
     gl.uniform1f(this.locations.spec, this.grade.spec);
     gl.uniform1f(this.locations.edge, this.grade.edge);
+    gl.uniform1f(this.locations.blueShift, this.grade.blueShift ?? 0.45);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 }

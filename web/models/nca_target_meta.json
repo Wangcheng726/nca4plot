@@ -1,0 +1,17 @@
+{
+  "kind": "target",
+  "width": 256,
+  "height": 144,
+  "model": "nca_target_256x144.onnx",
+  "steps_per_inference": 2,
+  "seed_rgba": [
+    0.415686,
+    0.529412,
+    0.662745,
+    1.0
+  ],
+  "seed_image": "nca_target_seed.png",
+  "parameter_count": 5856,
+  "target_sha256": "daaf0a039bed9a568d12cd7ab0b0d6f00abc8964b85de42361b1ae528ede4a1e",
+  "state_layout": "RGBA in [0,1], no offset; zero state = dead"
+}

@@ -1,0 +1,42 @@
+{
+  "source_checkpoint": ".cache/export_src_256.pt",
+  "source_sha256": "ebecebc20ac9fa86d157a23fe7d3b3c7514b6995214d36e02fa9479e6646be0c",
+  "source_step": 8501,
+  "model_checkpoint": {
+    "path": "checkpoints/nca_target_model.pt",
+    "bytes": 26482,
+    "sha256": "770bcb39996e5e6316b12e79330dfec5ea9fc422adfec07fb6054b4a9b315fbb",
+    "step": 8501
+  },
+  "onnx": [
+    {
+      "kind": "target",
+      "size": "256x144",
+      "steps": 2,
+      "path": "checkpoints/nca_target_256x144.onnx",
+      "bytes": 35627,
+      "sha256": "e0d72451abf99ab64313ac6927033ab9ac49af156d5d2f8955051ba15f920c2e",
+      "max_abs_diff": 2.086162567138672e-07,
+      "mean_abs_diff": 6.357411042046124e-09,
+      "parity_inputs": [
+        "single_seed",
+        "full_target_rgba"
+      ]
+    }
+  ],
+  "weights": {
+    "path": "checkpoints/nca_target_weights_256x144.json",
+    "bytes": 181126,
+    "sha256": "50193eabe9750e6c1641b9f2f1ab5955d0564d8558c80ed09490df5c8b904198"
+  },
+  "web_models": [
+    {
+      "path": "web/models/nca_target_256x144.onnx",
+      "bytes": 35627
+    },
+    {
+      "path": "web/models/nca_target_seed_256x144.png",
+      "bytes": 100722
+    }
+  ]
+}

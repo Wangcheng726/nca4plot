@@ -74,6 +74,11 @@ def overflow_loss(state: torch.Tensor) -> torch.Tensor:
     return (state - state.clamp(-1.0, 1.0)).abs().sum()
 
 
+def overflow_loss_ms(state: torch.Tensor) -> torch.Tensor:
+    """Official growing-CA scale: mean squared overflow beyond [-1, 1]."""
+    return (state - state.clamp(-1.0, 1.0)).square().mean()
+
+
 def normalize_gradients(model: torch.nn.Module) -> None:
     for p in model.parameters():
         if p.grad is not None:
