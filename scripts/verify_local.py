@@ -173,6 +173,22 @@ def main():
         page.evaluate("window.nca4plot.pause()")  # resume for healing
         page.wait_for_timeout(5000)
         shot(page, "healed")
+        if MODE == "persistent":
+            # Distill persistent semantics: the wound core is damage-locked and
+            # must still be exactly zero after the healing window.
+            retention = page.evaluate(
+                """() => {
+                  const e = window.nca4plot.engine;
+                  const n2 = e.n2, d = e.stateData;
+                  let maxAbs = 0;
+                  for (const p of e.lockedPixels) {
+                    for (let c = 0; c < 12; c += 1) maxAbs = Math.max(maxAbs, Math.abs(d[c * n2 + p]));
+                  }
+                  return { locked: e.lockedPixels.length, maxAbs };
+                }"""
+            )
+            report["wound_locked_cells"] = retention["locked"]
+            report["wound_retention_max_abs"] = round(float(retention["maxAbs"]), 6)
         if MODE != "persistent":
             state, _ = pull_rgba(page)
             tgt = target_rgba(grid_w, grid_h)

@@ -119,35 +119,48 @@ def test_browser_boot_erase_recover_and_controls(local_server: str) -> None:
         assert empty["samples"] > 0
         assert empty["maxAbs"] == 0, "erasure must clear every one of the 12 CA channels"
 
-        # Resume and allow the local rule to repopulate the wound.
+        # Resume: persistent semantics (Distill growing-ca) -- the wound core
+        # is damage-locked and must stay open forever, while the sky around it
+        # keeps flowing under the same texture rule.
         page.click("#pauseButton")
         page.wait_for_function(
             "(start) => window.nca4plot.steps > start + 120",
             arg=paused_steps,
             timeout=60_000,
         )
-        recovered = page.evaluate(
+        retained = page.evaluate(
             """() => {
               const engine = window.nca4plot.engine;
               const n = engine.size;
               const n2 = n * n;
               const cx = n * 0.5;
               const cy = n * 0.5;
-              let energy = 0;
-              let count = 0;
-              for (let y = Math.floor(cy - 9); y <= Math.ceil(cy + 9); y += 1) {
-                for (let x = Math.floor(cx - 9); x <= Math.ceil(cx + 9); x += 1) {
+              let coreMax = 0;
+              let rimEnergy = 0;
+              let rimCount = 0;
+              for (let y = Math.floor(cy - 12); y <= Math.ceil(cy + 12); y += 1) {
+                for (let x = Math.floor(cx - 12); x <= Math.ceil(cx + 12); x += 1) {
                   const pixel = y * n + x;
+                  const dist = Math.hypot(x - cx, y - cy);
+                  let cellMax = 0;
                   for (let channel = 0; channel < 12; channel += 1) {
-                    energy += Math.abs(engine.stateData[channel * n2 + pixel]);
-                    count += 1;
+                    cellMax = Math.max(cellMax, Math.abs(engine.stateData[channel * n2 + pixel]));
                   }
+                  if (dist <= 6) coreMax = Math.max(coreMax, cellMax);
+                  if (dist >= 11) { rimEnergy += cellMax; rimCount += 1; }
                 }
               }
-              return { meanAbs: energy / count, steps: engine.steps };
+              return {
+                coreMax,
+                rimMean: rimCount ? rimEnergy / rimCount : 0,
+                locked: engine.lockedPixels.length,
+                steps: engine.steps,
+              };
             }"""
         )
-        assert recovered["meanAbs"] > 1e-5, "the wound did not regrow"
+        assert retained["locked"] > 0, "persistent erasure recorded no damage-locked cells"
+        assert retained["coreMax"] == 0, "persistent wound core healed; damage must be permanent"
+        assert retained["rimMean"] > 1e-3, "the sky around the wound stopped flowing"
 
         # Reset returns the state buffer to zero at least momentarily.
         page.click("#pauseButton")
@@ -326,6 +339,29 @@ def test_target_regenerate_growing_and_mode_switch(local_server: str) -> None:
         assert page.evaluate("window.nca4plot.engine.width") == 256
         assert page.evaluate("document.querySelector('#qualitySelect').disabled") is False
         assert page.locator('.mode-button[data-mode="persistent"]').get_attribute("aria-pressed") == "true"
+
+        # Damage-lock at the default 256 grid: tear, run the texture rule, and
+        # require every locked cell to stay exactly zero (wound never heals).
+        page.evaluate("window.nca4plot.pause()")
+        page.wait_for_timeout(200)
+        page.evaluate("window.nca4plot.eraseNormalized(0.5, 0.5, 14)")
+        assert page.evaluate("window.nca4plot.engine.lockedPixels.length") > 0
+        page.evaluate("window.nca4plot.pause()")  # resume
+        steps_before = page.evaluate("window.nca4plot.steps")
+        page.wait_for_function(
+            "(s) => window.nca4plot.steps > s + 100", arg=steps_before, timeout=90_000)
+        core_max = page.evaluate(
+            """() => {
+              const e = window.nca4plot.engine;
+              const n2 = e.n2, d = e.stateData;
+              let m = 0;
+              for (const p of e.lockedPixels) {
+                for (let c = 0; c < 12; c += 1) m = Math.max(m, Math.abs(d[c * n2 + p]));
+              }
+              return m;
+            }"""
+        )
+        assert core_max == 0, "persistent wound healed at 256; damage must stay locked"
 
         assert page_errors == []
         context.close()

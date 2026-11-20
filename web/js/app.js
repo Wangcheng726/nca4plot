@@ -42,8 +42,8 @@ const MODE_COPY = {
     toast: '生长模式：散落的记忆星点，长回整幅《星空》。',
   },
   persistent: {
-    gesture: ['拖动，撕开夜空', '松手之后，它会自己重新组织。'],
-    toast: '永动模式：没有目标图，天空永远流动、永不重复。',
+    gesture: ['拖动，撕开夜空', '伤口不会愈合——天空带着伤痕继续流动。'],
+    toast: '永动模式：没有目标图，伤口永久保留，天空永远流动、永不重复。',
   },
 };
 
@@ -98,7 +98,7 @@ function updateStatus() {
   } else if (paused) {
     setStatus('已暂停 · 局部规则静候');
   } else if (now < woundUntil) {
-    setStatus(engine.kind === 'target' ? '伤口正在长回原画' : '伤口边界失效 · 正在再生', 'wounded');
+    setStatus(engine.kind === 'target' ? '伤口正在长回原画' : '伤口永久敞开 · 边界仍在流动', 'wounded');
   } else if (!entered) {
     setStatus('正在唤醒局部规则');
   } else if (engine.kind === 'target') {

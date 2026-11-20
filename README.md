@@ -17,9 +17,11 @@
 | --- | --- | --- | --- |
 | **再生 regenerate**（默认） | 整幅《星空》本身（记忆启动） | 伤口从边缘长回原画的笔触与颜色 | 目标 NCA（Growing-CA 式） |
 | **生长 growing** | 稀疏记忆星群（约 60% 像素携带原画色素） | 星点自组织、合并成整幅《星空》 | 目标 NCA（同一 256×144 权重） |
-| **永动 persistent** | 零种子长出的天空纹理 | 自行重新组织，不朝向任何记忆 | 纹理 NCA（Self-Organising Textures 式） |
+| **永动 persistent** | 零种子长出的天空纹理 | 伤口永久敞开、不愈合；其余天空持续流动 | 纹理 NCA（Self-Organising Textures 式）＋损伤锁定边界 |
 
 再生模式的"记忆"不是贴图层：初始状态（RGBA=原画、隐通道=0）是被训练进规则里的不动点，其后的每一帧运动仍只来自 NCA 推理；渲染着色器只增强厚涂材质，不产生任何运动。
+
+永动模式对应 Distill Growing-CA 的 **persistent 语义：损伤永不愈合**。实现上，笔刷核心（擦除后保留比例 <0.35 的细胞）被引擎记录为"损伤锁定"（damage-lock）边界条件，每次 NCA 推理后重新钉零；羽化边缘保留部分状态、继续流动，于是天空围绕一道永远敞开的伤口重新编织。**锁定是施加在状态上的边界条件，不是学习到的权重**——画面里所有运动仍 100% 来自 NCA 推理。重置会清除全部锁定，回到零种子重新生长。
 
 ## 操作
 
@@ -113,19 +115,20 @@ uv run python scripts/capture_web.py --mode persistent
 
 ## 实测验收
 
-验收命令：`python scripts/verify_local.py <url> <mode> <tag>`（Chrome headless · WebGPU · 1600×900），截图与报告见 `media/iterate/<tag>_*.png / .json`；本轮标签 `iter2001_regen / iter2001_growing / iter2001_persist`。mse＝RGBA［0,1］对 `data/target_sky_256x144.png` 的均方误差（隔 2 像素采样）；频闪＝暂停后相邻帧平均绝对差（0–255）；对齐＝擦除区质心与笔刷映射质心之差（cells）。
+验收命令：`python scripts/verify_local.py <url> <mode> <tag>`（Chrome headless · WebGPU · 1600×900），截图与报告见 `media/iterate/<tag>_*.png / .json`；本轮标签 `iter2002_regen / iter2002_growing / iter2002_persist`。mse＝RGBA［0,1］对 `data/target_sky_256x144.png` 的均方误差（隔 2 像素采样）；频闪＝暂停后相邻帧平均绝对差（0–255）；对齐＝擦除区质心与笔刷映射质心之差（cells）。
 
 | 模式 | 网格 | 初始状态 | 擦除愈合后整幅 mse | 伤口区 mse | 暂停频闪 max | 笔刷对齐 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 再生 regenerate | 256×144 | 即原画：mse 0.00011 | 0.00031 | 0.0056 | 0.0024 | 0.12 cells |
-| 生长 growing | 256×144 | 记忆星群：step≈4 时约 60% 像素携带原画记忆 | 0.00386 | 0.00643 | 0.0027 | 0.12 cells |
-| 永动 persistent | 256×256 | 无目标图，纹理从零生长 | —（无目标） | — | 0.0021 | 0.18 cells |
+| 再生 regenerate | 256×144 | 即原画：mse 0.00011 | 0.0003 | 0.0052 | 0.0022 | 0.12 cells |
+| 生长 growing | 256×144 | 记忆星群：step≈4 时约 60% 像素携带原画记忆 | 0.00381 | 0.0063 | 0.0026 | 0.12 cells |
+| 永动 persistent | 256×256 | 无目标图，纹理从零生长 | —（无目标） | 伤口锁定保留＝0 | 0.0022 | 0.13 cells |
 
-- **流动**：相邻帧差 regenerate 0.040、growing 0.205（慢时钟自组织）、persistent 26.06（永不静止）；暂停后三模式帧差均 ≤0.0027，**无频闪**。
-- **与旧版对比**：旧 growing（v6b，`media/iterate/v6b4001g_*`）愈合 mse 0.0213＝平均色灰雾；本轮 0.00386＝可辨认整幅原画，约 5.5× 改善。旧公网只有纹理模式、初始状态不是原画（`media/iterate/public_pre_stroke.png`）。
+- **流动**：相邻帧差 regenerate 0.0455、growing 0.209（慢时钟自组织）、persistent 25.10（永不静止）；暂停后三模式帧差均 ≤0.0026，**无频闪**。
+- **永动损伤锁定**：真实笔刷撕裂后继续运行 5 秒（约 600 CA 步），389 个锁定细胞的 12 通道 max|state|＝**0.000000**（伤口永久敞开、不愈合），其余天空帧差 25.10 持续流动；笔刷对齐 0.13 cells（`media/iterate/iter2002_persist_healed.png` 可见永久暗夜裂口）。
+- **与旧版对比**：旧 growing（v6b，`media/iterate/v6b4001g_*`）愈合 mse 0.0213＝平均色灰雾；本轮 0.00381＝可辨认整幅原画，约 5.6× 改善。旧公网只有纹理模式、初始状态不是原画（`media/iterate/public_pre_stroke.png`）。
 - **生长 boot 门**（`tests/test_web.py`）：alpha 在数步内铺满，故星群阶段按"每细胞保真度"度量——step≈6–14 暂停时钟，接近原画的细胞占比 ∈(0.35, 0.85) 且整幅 mse>0.006（仍是星群而非成品）；step≥240 要求 mse<0.012。实测 boot close≈0.69 / mse≈0.011，240 步 mse≈0.0035 / close≈0.90（`scripts/probe_boot_gates.py`）。
 - **Python 侧**：模型恰好 5,856 参数；ONNX↔PyTorch 最大绝对差 2.09e-7（`checkpoints/export_target_report_256x144.json`）；星群探针 60 步 mse 0.0033、240 步 0.0031（`checkpoints/probe_const60_nca_target.png`）。
-- **pytest 全绿**：参数量、生命门、ONNX parity、浏览器端到端（初始 mse<0.012、擦除 12 通道清零、伤口 mse<0.02、三模式切换、移动端布局）。
+- **pytest 全绿**：参数量、生命门、ONNX parity、浏览器端到端（初始 mse<0.012、擦除 12 通道清零、伤口 mse<0.02、**永动伤口锁定保留＝核心 12 通道恒为 0**、三模式切换、移动端布局）。
 - 演示视频：`media/nca4plot_demo.mp4 / .gif`（再生）、`media/growing/`（星群→整幅天空）、`media/persistent/`（永动），各含海报与过程接触表。
 
 ## 交付索引

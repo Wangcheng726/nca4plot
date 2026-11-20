@@ -67,7 +67,7 @@
     <button class="mode-button" type="button" data-mode="growing" aria-pressed="false" title="从记忆星群自组织成整幅天空 · Growing">
       <span>生长</span><small>GROWING</small>
     </button>
-    <button class="mode-button" type="button" data-mode="persistent" aria-pressed="false" title="没有目标图，永不落定 · Persistent">
+    <button class="mode-button" type="button" data-mode="persistent" aria-pressed="false" title="没有目标图，伤口不愈，永不落定 · Persistent">
       <span>永动</span><small>PERSISTENT</small>
     </button>
   </div>
@@ -109,8 +109,8 @@
       <div class="about-grid">
         <div class="about-main">
           <p>这片天空不是一张被播放的图片。画面里的每个像素都受同一套局部规则支配；规则只读取邻近细胞，却让旋涡、流带与厚涂肌理在全球尺度上自行出现。没有最终帧，也没有可抵达的平衡。</p>
-          <p>观众的拖拽会真正清空 12 个通道，而不是在画面上盖一层“伤口”。边界失去记忆后，周围细胞继续分裂、迁移、改写，缺口被新的笔触重新填满。破坏因此不是故障，而是作品继续生长的条件。</p>
-          <p>作品提供三种时间观。<strong>再生</strong>（regenerate）：天空记得整幅《星空》，撕开的缺口会沿边界重新长回原画；<strong>生长</strong>（growing）：天空先以稀疏的记忆星群存在，观众目睹星点自组织成整幅《星空》；<strong>永动</strong>（persistent）：没有目标图，只有纹理规则，天空永远流动、永不重复。前两者由整幅天空 256×144 训练的目标模型驱动（同一套权重、不同初始条件），后者由纹理模型驱动——两者都恰好 5,856 参数。</p>
+          <p>观众的拖拽会真正清空 12 个通道，而不是在画面上盖一层“伤口”。在再生与生长模式里，边界失去记忆后，周围细胞继续分裂、迁移、改写，缺口被新的笔触重新填满；永动模式则让伤口永久敞开，天空带着伤痕继续流动。破坏因此不是故障，而是作品的时间结构本身。</p>
+          <p>作品提供三种时间观。<strong>再生</strong>（regenerate）：天空记得整幅《星空》，撕开的缺口会沿边界重新长回原画；<strong>生长</strong>（growing）：天空先以稀疏的记忆星群存在，观众目睹星点自组织成整幅《星空》；<strong>永动</strong>（persistent）：没有目标图，只有纹理规则，擦除的伤口被永久锁定、不再愈合（损伤锁定是引擎施加的边界条件，而非学习到的权重），天空带着伤痕永远流动、永不重复。前两者由整幅天空 256×144 训练的目标模型驱动（同一套权重、不同初始条件），后者由纹理模型驱动——两者都恰好 5,856 参数。</p>
           <p>《星空》的旋涡常被读作湍流的视觉直觉。NCA 的“局部规则 → 全局自组织”，与湍流“局部作用 → 涡旋级联”构成一种同构的诗意，而不必是严格的物理证明：两者的美，都发生在尺度之间。</p>
           <p class="about-caveat">需要说明：关于《星空》亮度谱符合 Kolmogorov −5/3 律的 2024 年测量，2025 年已有同行评论，相关解释仍有争议。本作只借“局部生成全局”的审美同构，不作物理证明。</p>
         </div>

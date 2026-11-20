@@ -2,6 +2,14 @@ import * as ort from '../assets/ort/ort.webgpu.bundle.min.mjs';
 
 const STEPS_PER_RUN = { 128: 4, 256: 4, 512: 2 };
 
+// Persistent-mode damage lock: cells erased past this keep fraction are pinned
+// to zero forever -- Distill "persistent" semantics, where damage never heals.
+// This is a boundary condition on the state, not learned weights: every visible
+// motion still comes from the NCA rule itself; the lock only refuses to let the
+// wound core regrow. The feathered rim keeps less than full erase and stays
+// alive, so the sky reweaves around an open wound.
+const LOCK_KEEP_THRESHOLD = 0.35;
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -34,7 +42,8 @@ function smoothstep(edge0, edge1, x) {
 }
 
 // Two flavours of the same 5,856-parameter rule:
-//  - texture: square grid, 12ch (RGB+0.5 offset, 9 hidden), infinite drift.
+//  - texture: square grid, 12ch (RGB+0.5 offset, 9 hidden), infinite drift;
+//             erased wound cores are damage-locked open (persistent mode).
 //  - target:  rectangular grid, 12ch (RGBA in [0,1], 8 hidden), regrows a
 //             fixed painting. Zero state = transparent = dead matter.
 export class NCAEngine {
@@ -55,6 +64,8 @@ export class NCAEngine {
     this.stateData = null;
     this.masksData = null;
     this.masksTensor = null;
+    this.lockMask = null;
+    this.lockedPixels = [];
     this.steps = 0;
     this.version = 0;
     this.loadMs = 0;
@@ -139,12 +150,16 @@ export class NCAEngine {
       this.masksData,
       [this.stepsPerRun, 1, this.height, this.width],
     );
+    this.lockMask = this.kind === 'texture' ? new Uint8Array(n2) : null;
+    this.lockedPixels = [];
     this.steps = 0;
     this.version += 1;
   }
 
   reset() {
     this.stateData.fill(0);
+    if (this.lockMask) this.lockMask.fill(0);
+    this.lockedPixels.length = 0;
     if (this.kind === 'target' && this.seedFull) {
       // Regenerate boots as the living painting itself: RGBA = the memory of
       // the sky, hidden channels = 0. Stability on this state is trained.
@@ -203,6 +218,16 @@ export class NCAEngine {
     if (versionAtStart !== this.version) return false;
 
     this.stateData = result.state_out.data;
+    if (this.lockedPixels.length) {
+      const n2 = this.n2;
+      const data = this.stateData;
+      for (let k = 0; k < this.lockedPixels.length; k += 1) {
+        const pixel = this.lockedPixels[k];
+        for (let channel = 0; channel < 12; channel += 1) {
+          data[channel * n2 + pixel] = 0;
+        }
+      }
+    }
     this.steps += this.stepsPerRun;
     return true;
   }
@@ -240,6 +265,19 @@ export class NCAEngine {
         if (erase <= 0) continue;
         const keep = 1 - erase;
         const pixel = y * w + x;
+        if (this.kind === 'texture' && keep < LOCK_KEEP_THRESHOLD) {
+          // Wound core: permanent damage. Zero every channel now and record the
+          // cell so run() re-pins it after each inference -- the texture rule
+          // can never heal it, while the feathered rim keeps drifting.
+          if (this.lockMask && !this.lockMask[pixel]) {
+            this.lockMask[pixel] = 1;
+            this.lockedPixels.push(pixel);
+          }
+          for (let channel = 0; channel < 12; channel += 1) {
+            this.stateData[channel * n2 + pixel] = 0;
+          }
+          continue;
+        }
         for (let channel = 0; channel < 12; channel += 1) {
           this.stateData[channel * n2 + pixel] *= keep;
         }
@@ -265,6 +303,8 @@ export class NCAEngine {
     this.stateData = null;
     this.masksData = null;
     this.masksTensor = null;
+    this.lockMask = null;
+    this.lockedPixels = [];
   }
 
   get memoryBytes() {

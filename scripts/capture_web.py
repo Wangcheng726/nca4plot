@@ -131,7 +131,8 @@ def record_sequence(
     shot()
     marks["tear_end"] = frames[-1][0]
 
-    # The wound reorganises and grows back, then keeps drifting.
+    # After the tear: target modes regrow the painting; persistent keeps the
+    # wound damage-locked open while the rest of the sky drifts on.
     capture_for(max(0.2, duration_s - 6.05))
     marks["end"] = frames[-1][0]
     print(
@@ -262,7 +263,7 @@ SHEET_LABELS = {
         "1  MATURE DRIFT",
         "2  ZERO -> GROWTH",
         "3  THE SKY IS TORN",
-        "4  WOUND EDGE REWEAVING",
+        "4  THE WOUND STAYS OPEN",
         "5  NEVER SETTLING",
     ],
 }
