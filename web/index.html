@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>复原力 · 一株会重新长成的植物</title>
+  <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>复原力 <span class="sub">一株会重新长成的植物</span></h1>
+    <p class="note">每个细胞只遵循同一条局部规则（8,336 个参数）。从一粒种子长成整株植物；擦掉一部分，它会自己长回来。</p>
+
+    <div class="stage">
+      <canvas id="view" width="480" height="480" aria-label="NCA 画布：拖动可擦除"></canvas>
+      <figure class="target">
+        <img id="targetImg" alt="目标图" width="96" height="96">
+        <figcaption>目标</figcaption>
+      </figure>
+    </div>
+
+    <div class="controls">
+      <button id="btnReset" title="快捷键 R">重新生长</button>
+      <button id="btnPause" title="快捷键 Space">暂停</button>
+      <span class="brush">笔刷 <button id="btnBrushDown">−</button><span id="brushSize">4</span><button id="btnBrushUp">＋</button></span>
+      <span class="tests">损伤测试 <button id="btnDmgSmall">小块</button><button id="btnDmgBig">大块</button></span>
+    </div>
+
+    <p class="status"><span id="status">加载中…</span></p>
+    <p class="hint">在画布上拖动即可擦除 · 松手后观察它再生 · 「小块 / 大块」施加标准圆形损伤</p>
+
+    <footer>
+      方法：<a href="https://distill.pub/2020/growing-ca/">Growing Neural Cellular Automata</a>（Distill, 2020）官方训练配方 · 目标图为课程原创
+    </footer>
+  </main>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

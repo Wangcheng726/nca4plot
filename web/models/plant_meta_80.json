@@ -1,0 +1,23 @@
+{
+  "kind": "target",
+  "width": 80,
+  "height": 80,
+  "model": "plant_80.onnx",
+  "steps_per_inference": 4,
+  "chn": 16,
+  "hidden_n": 128,
+  "kernel_scale": 8.0,
+  "kernels": 3,
+  "parameter_count": 8336,
+  "seed_mode": "single_cell",
+  "seed_xy": [
+    40,
+    64
+  ],
+  "guard": false,
+  "target_image": "plant_target_80.png",
+  "target_sha256": "90037bfea79a8144a28d0ec8eed904a705a78dfc4268aec3d65bde57400da4d5",
+  "source_checkpoint": "plant_latest.pt",
+  "source_step": 16000,
+  "state_layout": "RGBA premultiplied in [0,1] + hidden; zero state = dead"
+}

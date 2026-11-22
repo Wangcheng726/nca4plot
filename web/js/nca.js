@@ -61,6 +61,10 @@ export class NCAEngine {
     this.modelFile = options.modelFile ?? (this.kind === 'texture'
       ? `nca_starry_${this.width}.onnx`
       : `nca_target_${this.width}x${this.height}.onnx`);
+    this.metaFile = options.metaFile ?? null;
+    this.seedMode = 'image';   // 'single_cell' boots one living seed (official growing)
+    this.seedXY = null;
+    this.guardEnabled = options.guard ?? true;
     this.stepsPerRun = options.stepsPerRun
       ?? (this.kind === 'texture' ? (STEPS_PER_RUN[this.width] ?? 4) : 2);
     this.seedRGBA = null;
@@ -95,16 +99,19 @@ export class NCAEngine {
     if (this.kind === 'target') {
       // Per-grid meta first; the legacy un-suffixed file remains the
       // 256x144 fallback for both target modes.
-      const sizedUrl = new URL(`../models/nca_target_meta_${this.width}x${this.height}.json`, import.meta.url).href;
+      const sizedUrl = new URL(`../models/${this.metaFile ?? `nca_target_meta_${this.width}x${this.height}.json`}`, import.meta.url).href;
       const legacyUrl = new URL('../models/nca_target_meta.json', import.meta.url).href;
       let response = await fetch(sizedUrl);
-      if (!response.ok) response = await fetch(legacyUrl);
+      if (!response.ok && !this.metaFile) response = await fetch(legacyUrl);
       if (!response.ok) throw new Error(`target meta missing: ${response.status}`);
       const meta = await response.json();
       this.chn = meta.chn ?? 12;
       this.parameterCount = meta.parameter_count ?? null;
       this.seedRGBA = meta.seed_rgba;
       this.stepsPerRun = meta.steps_per_inference ?? this.stepsPerRun;
+      this.seedMode = meta.seed_mode ?? 'image';
+      this.seedXY = meta.seed_xy ?? null;
+      this.guardEnabled = meta.guard ?? this.guardEnabled;
       if (meta.width !== this.width || meta.height !== this.height) {
         throw new Error(`target meta ${meta.width}x${meta.height} != engine ${this.width}x${this.height}`);
       }
@@ -182,10 +189,17 @@ export class NCAEngine {
     this.stateData.fill(0);
     if (this.lockMask) this.lockMask.fill(0);
     this.lockedPixels.length = 0;
-    if (this.kind === 'target' && this.seedFull) {
-      // Regenerate boots as the living painting itself: RGBA = the memory of
-      // the sky, hidden channels = 0. Stability on this state is trained.
-      this.stateData.set(this.seedFull, 0);
+    if (this.kind === 'target') {
+      if (this.seedMode === 'single_cell' && this.seedXY) {
+        // Official growing-CA seed: one cell, alpha + hidden channels = 1.
+        // Everything else you will see is produced by the learned rule.
+        const [sx, sy] = this.seedXY;
+        const idx = sy * this.width + sx;
+        for (let c = 3; c < this.chn; c += 1) this.stateData[c * this.n2 + idx] = 1.0;
+      } else if (this.seedFull) {
+        // Legacy regenerate boots as the living painting itself.
+        this.stateData.set(this.seedFull, 0);
+      }
     }
     this.steps = 0;
     this.version += 1;
@@ -288,7 +302,7 @@ export class NCAEngine {
       }
     }
     this.satFraction = saturated / (4 * n2);
-    if (this.satFraction > 0.02 && this.seedFull) {
+    if (this.guardEnabled && this.satFraction > 0.02 && this.seedFull) {
       this.guardEvents = (this.guardEvents || 0) + 1;
       const lock = this.lockMask;
       for (let i = 0; i < n2; i += 1) {

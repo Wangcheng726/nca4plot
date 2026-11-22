@@ -1,0 +1,20 @@
+{
+  "variant": "A",
+  "grid": 80,
+  "seed_xy": [
+    40,
+    64
+  ],
+  "palette": {
+    "stem": "#2E7D32",
+    "leaf": "#66BB6A",
+    "leaf2": "#43A047",
+    "petal": "#F48FB1",
+    "center": "#FBC02D"
+  },
+  "flower_center_xy": [
+    40,
+    21
+  ],
+  "note": "original procedural artwork; RGBA straight alpha; trainer premultiplies RGB"
+}

@@ -24,13 +24,9 @@ def erase_disc(state: torch.Tensor, cx: float, cy: float, radius: float, feather
 
 
 def load_ca(checkpoint: Path, device: torch.device) -> CA:
-    payload = torch.load(checkpoint, map_location="cpu")
-    ca = CA()
-    ca.load_state_dict(payload["model_state_dict"])
-    ca.to(device).eval()
-    if parameter_count(ca) != 5856:
-        raise AssertionError(parameter_count(ca))
-    return ca
+    """Architecture-aware loader (texture 5856 / official plant 8336 / sky 10368)."""
+    from .export_onnx import load_model
+    return load_model(checkpoint, device)
 
 
 def main() -> None:

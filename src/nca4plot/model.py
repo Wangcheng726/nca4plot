@@ -25,7 +25,7 @@ _PERCEPTION_CACHE: dict[tuple, torch.Tensor] = {}
 
 
 def perception_filters(device: torch.device | str = "cpu", dtype: torch.dtype = torch.float32,
-                       scale: float = 1.0) -> torch.Tensor:
+                       scale: float = 1.0, n: int = 4) -> torch.Tensor:
     """Return the four fixed per-channel perception kernels, shape [4, 3, 3].
 
     Cached per (device, dtype): rebuilding these tiny tensors and copying them
@@ -36,14 +36,16 @@ def perception_filters(device: torch.device | str = "cpu", dtype: torch.dtype = 
     """
     dev = torch.device(device)
     scale = float(scale)
-    key = (dev.type, dev.index, dtype, scale)
+    key = (dev.type, dev.index, dtype, scale, n)
     hit = _PERCEPTION_CACHE.get(key)
     if hit is None:
         # v11: official notebook normalises sobel by 8; scaling the
         # derivative kernels shrinks per-step update magnitude so the
         # rule refines strokes instead of oscillating into speckle.
-        hit = torch.stack([IDENTITY, SOBEL_X / scale, SOBEL_X.T / scale,
-                           LAPLACIAN / scale]).to(device=dev, dtype=dtype)
+        kernels = [IDENTITY, SOBEL_X / scale, SOBEL_X.T / scale]
+        if n >= 4:
+            kernels.append(LAPLACIAN / scale)
+        hit = torch.stack(kernels[:n]).to(device=dev, dtype=dtype)
         _PERCEPTION_CACHE[key] = hit
     return hit
 
@@ -72,20 +74,24 @@ class CA(nn.Module):
     the delivered sky models use 16ch/128 hidden = 10,368 params.
     """
 
-    def __init__(self, chn: int = 12, hidden_n: int = 96, kernel_scale: float = 1.0):
+    def __init__(self, chn: int = 12, hidden_n: int = 96, kernel_scale: float = 1.0,
+                 kernels: int = 4, bias2: bool = False):
         super().__init__()
         self.chn = int(chn)
         self.hidden_n = int(hidden_n)
         self.kernel_scale = float(kernel_scale)
-        self.w1 = nn.Conv2d(chn * 4, hidden_n, 1)
-        self.w2 = nn.Conv2d(hidden_n, chn, 1, bias=False)
+        self.kernels = int(kernels)
+        self.w1 = nn.Conv2d(chn * self.kernels, hidden_n, 1)
+        self.w2 = nn.Conv2d(hidden_n, chn, 1, bias=bias2)
         self.w2.weight.data.zero_()
+        if bias2:
+            self.w2.bias.data.zero_()
         # Growing-CA life gate: dead (alpha~0) cells stay exactly zero.
         # Enabled only for the target/regenerate model; texture model keeps False.
         self.life_gating = False
 
     def perceive(self, x: torch.Tensor) -> torch.Tensor:
-        return perchannel_conv(x, perception_filters(x.device, x.dtype, self.kernel_scale))
+        return perchannel_conv(x, perception_filters(x.device, x.dtype, self.kernel_scale, self.kernels))
 
     def step(self, x: torch.Tensor, update_mask: torch.Tensor) -> torch.Tensor:
         """One update with an externally supplied per-cell [B,1,H,W] mask."""

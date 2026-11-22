@@ -43,10 +43,13 @@ def load_payload(checkpoint: Path) -> dict:
 
 def load_model(checkpoint: Path, device: torch.device = torch.device("cpu")) -> CA:
     payload = load_payload(checkpoint)
-    w1 = payload["model_state_dict"]["w1.weight"]
-    hidden_n, in_ch = int(w1.shape[0]), int(w1.shape[1])
+    sd = payload["model_state_dict"]
+    w1, w2 = sd["w1.weight"], sd["w2.weight"]
+    chn, hidden_n = int(w2.shape[0]), int(w1.shape[0])
+    kernels = int(w1.shape[1]) // chn
     arch = payload.get("architecture", {})
-    ca = CA(in_ch // 4, hidden_n, kernel_scale=float(arch.get("kernel_scale", 1.0)))
+    ca = CA(chn, hidden_n, kernel_scale=float(arch.get("kernel_scale", 1.0)),
+            kernels=kernels, bias2="w2.bias" in sd)
     ca.load_state_dict(payload["model_state_dict"])
     ca.life_gating = bool(payload.get("life_gating", False))
     ca.to(device).eval()
