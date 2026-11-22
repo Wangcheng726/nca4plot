@@ -50,17 +50,21 @@ def test_texture_model_ignores_life_gate_flag_default():
 
 
 @pytest.mark.skipif(
-    not (ROOT / "checkpoints" / "nca_target.pt").exists(),
+    not (ROOT / "checkpoints" / "nca_target_model.pt").exists()
+    and not (ROOT / "checkpoints" / "nca_target.pt").exists(),
     reason="target checkpoint not trained yet",
 )
 def test_target_export_parity_and_meta(tmp_path):
     from nca4plot.export_onnx import export_target_one, load_model, load_target_rgba
 
-    checkpoint = ROOT / "checkpoints" / "nca_target.pt"
+    checkpoint = ROOT / "checkpoints" / "nca_target_model.pt"
+    if not checkpoint.exists():
+        checkpoint = ROOT / "checkpoints" / "nca_target.pt"
     ca = load_model(checkpoint)
     ca.life_gating = True
     payload = torch.load(checkpoint, map_location="cpu")
-    width, height = (int(v) for v in payload["target_size"])
+    target_size = payload.get("target_size") or payload["training"]["target_size"]
+    width, height = (int(v) for v in target_size)
     target_path = ROOT / "data" / f"target_sky_{width}x{height}.png"
     out = tmp_path / f"nca_target_{width}x{height}.onnx"
     report = export_target_one(ca, width, height, 4, out, checkpoint, target_path)

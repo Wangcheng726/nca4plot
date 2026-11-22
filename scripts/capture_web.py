@@ -108,7 +108,7 @@ def record_sequence(
     capture_for(5.6)
     marks["tear_start"] = frames[-1][0]
 
-    # A real pointer stroke enters the page event path and erases all 12 channels.
+    # A real pointer stroke enters the page event path and erases all 16 channels.
     points: list[tuple[float, float]] = []
     for i in range(29):
         t = i / 28
@@ -329,7 +329,6 @@ def capture_mobile(browser, url: str, path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--quality", type=int, default=512, choices=[128, 256, 512])
     parser.add_argument("--mode", default="regenerate",
                         choices=["regenerate", "growing", "persistent"])
     parser.add_argument("--duration", type=float, default=17.0)
@@ -354,9 +353,8 @@ def main() -> None:
             device_scale_factor=1,
         )
         page = context.new_page()
-        quality = f"&quality={args.quality}" if args.mode == "persistent" else ""
         page.goto(
-            f"{url}?autostart=1&mode={args.mode}{quality}",
+            f"{url}?autostart=1&mode={args.mode}",
             wait_until="domcontentloaded",
         )
         wait_for_boot(page, {"regenerate": 460, "growing": 60, "persistent": 560}[args.mode])

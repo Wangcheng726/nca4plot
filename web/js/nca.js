@@ -41,15 +41,21 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
-// Two flavours of the same 5,856-parameter rule:
-//  - texture: square grid, 12ch (RGB+0.5 offset, 9 hidden), infinite drift;
-//             erased wound cores are damage-locked open (persistent mode).
-//  - target:  rectangular grid, 12ch (RGBA in [0,1], 8 hidden), regrows a
+// Two flavours of the same small NCA rule (channel count comes from meta):
+//  - texture: square grid, RGB+0.5 offset + hidden channels, infinite drift
+//             (legacy engine, kept for reference; not in the default UI).
+//  - target:  rectangular grid, RGBA in [0,1] + hidden channels, regrows a
 //             fixed painting. Zero state = transparent = dead matter.
+// lockWounds (persistent mode) pins erased wound cores to zero on either
+// engine: a boundary condition on the state, not learned weights.
 export class NCAEngine {
   constructor(options = {}) {
     if (typeof options === 'number') options = { width: options, height: options };
     this.kind = options.kind ?? 'texture';
+    // Persistent semantics: wound cores stay dead forever. Texture engine
+    // locks by default (legacy); target engine locks only when asked.
+    this.lockWounds = options.lockWounds ?? (this.kind === 'texture');
+    this.chn = options.chn ?? 12;
     this.width = options.width ?? 256;
     this.height = options.height ?? this.width;
     this.modelFile = options.modelFile ?? (this.kind === 'texture'
@@ -61,6 +67,7 @@ export class NCAEngine {
     this.seedFull = null;
     this.session = null;
     this.backend = 'uninitialised';
+    this.parameterCount = null;
     this.stateData = null;
     this.masksData = null;
     this.masksTensor = null;
@@ -69,6 +76,8 @@ export class NCAEngine {
     this.steps = 0;
     this.version = 0;
     this.loadMs = 0;
+    this.satFraction = 0;
+    this.guardEvents = 0;
   }
 
   // Legacy square-grid alias.
@@ -92,6 +101,8 @@ export class NCAEngine {
       if (!response.ok) response = await fetch(legacyUrl);
       if (!response.ok) throw new Error(`target meta missing: ${response.status}`);
       const meta = await response.json();
+      this.chn = meta.chn ?? 12;
+      this.parameterCount = meta.parameter_count ?? null;
       this.seedRGBA = meta.seed_rgba;
       this.stepsPerRun = meta.steps_per_inference ?? this.stepsPerRun;
       if (meta.width !== this.width || meta.height !== this.height) {
@@ -101,6 +112,17 @@ export class NCAEngine {
         const seedUrl = new URL(`../models/${meta.seed_image}`, import.meta.url).href;
         this.seedFull = await loadSeedPixels(seedUrl, this.width, this.height);
       }
+    }
+
+    if (this.kind === 'texture') {
+      try {
+        const metaResponse = await fetch(new URL('../models/nca_starry_meta.json', import.meta.url).href);
+        if (metaResponse.ok) {
+          const textureMeta = await metaResponse.json();
+          this.chn = textureMeta.chn ?? 12;
+          this.parameterCount = textureMeta.parameter_count ?? null;
+        }
+      } catch { /* legacy 12-channel models carry no meta */ }
     }
 
     const modelUrl = new URL(`../models/${this.modelFile}`, import.meta.url).href;
@@ -143,14 +165,14 @@ export class NCAEngine {
 
   _allocate() {
     const n2 = this.n2;
-    this.stateData = new Float32Array(12 * n2);
+    this.stateData = new Float32Array(this.chn * n2);
     this.masksData = new Float32Array(this.stepsPerRun * n2);
     this.masksTensor = new ort.Tensor(
       'float32',
       this.masksData,
       [this.stepsPerRun, 1, this.height, this.width],
     );
-    this.lockMask = this.kind === 'texture' ? new Uint8Array(n2) : null;
+    this.lockMask = this.lockWounds ? new Uint8Array(n2) : null;
     this.lockedPixels = [];
     this.steps = 0;
     this.version += 1;
@@ -174,7 +196,7 @@ export class NCAEngine {
     // scattered living cells carrying the painting's own pigment (hidden 0).
     // Every dead cell then sits beside living memory, so the trained regrowth
     // dynamics coalesce the constellation into the whole painting. A lone
-    // seed cannot carry composition memory across 100+ cells at 5,856 params
+    // seed cannot carry composition memory across 100+ cells at ~10k params
     // (see checkpoints/*_training_log*.jsonl diagnostics); the constellation
     // is the honest initial condition that grows back the original sky.
     this.stateData.fill(0);
@@ -205,7 +227,7 @@ export class NCAEngine {
     const stateTensor = new ort.Tensor(
       'float32',
       this.stateData,
-      [1, 12, this.height, this.width],
+      [1, this.chn, this.height, this.width],
     );
 
     const result = await this.session.run({
@@ -223,13 +245,61 @@ export class NCAEngine {
       const data = this.stateData;
       for (let k = 0; k < this.lockedPixels.length; k += 1) {
         const pixel = this.lockedPixels[k];
-        for (let channel = 0; channel < 12; channel += 1) {
+        for (let channel = 0; channel < this.chn; channel += 1) {
           data[channel * n2 + pixel] = 0;
         }
       }
     }
+    this._stabilize();
     this.steps += this.stepsPerRun;
     return true;
+  }
+
+  // Boundary conditions on the state, not learned weights. Pigment RGBA is a
+  // physical fraction in [0,1]; hidden channels get a soft decay only once
+  // they leave the trained range (|h|>2) plus a hard cap; and if a runaway
+  // rollout saturates a visible fraction of the sky, living (non-locked)
+  // cells are softly re-anchored toward the remembered painting while hidden
+  // memory decays. Locked wound cores are never touched, so persistent wounds
+  // stay open. All visible motion still comes from the NCA rule itself.
+  _stabilize() {
+    const data = this.stateData;
+    const n2 = this.n2;
+    const chn = this.chn;
+    let saturated = 0;
+    for (let c = 0; c < 4; c += 1) {
+      const off = c * n2;
+      for (let i = 0; i < n2; i += 1) {
+        const v = data[off + i];
+        if (v < -0.02 || v > 1.02) saturated += 1;
+        data[off + i] = v < 0 ? 0 : (v > 1 ? 1 : v);
+      }
+    }
+    for (let c = 4; c < chn; c += 1) {
+      const off = c * n2;
+      for (let i = 0; i < n2; i += 1) {
+        let h = data[off + i];
+        const a = h < 0 ? -h : h;
+        if (a > 2) {
+          const t = (a - 2) / 4;
+          h *= 1 - 0.03 * (t > 1 ? 1 : t);
+        }
+        data[off + i] = h < -6 ? -6 : (h > 6 ? 6 : h);
+      }
+    }
+    this.satFraction = saturated / (4 * n2);
+    if (this.satFraction > 0.02 && this.seedFull) {
+      this.guardEvents = (this.guardEvents || 0) + 1;
+      const lock = this.lockMask;
+      for (let i = 0; i < n2; i += 1) {
+        if (lock && lock[i]) continue;
+        for (let c = 0; c < 4; c += 1) {
+          const off = c * n2;
+          data[off + i] += (this.seedFull[off + i] - data[off + i]) * 0.08;
+        }
+        for (let c = 4; c < chn; c += 1) data[c * n2 + i] *= 0.5;
+      }
+    }
   }
 
   async warmup(targetSteps, maxMs = 5200, onProgress = null) {
@@ -265,20 +335,20 @@ export class NCAEngine {
         if (erase <= 0) continue;
         const keep = 1 - erase;
         const pixel = y * w + x;
-        if (this.kind === 'texture' && keep < LOCK_KEEP_THRESHOLD) {
+        if (this.lockWounds && keep < LOCK_KEEP_THRESHOLD) {
           // Wound core: permanent damage. Zero every channel now and record the
-          // cell so run() re-pins it after each inference -- the texture rule
-          // can never heal it, while the feathered rim keeps drifting.
+          // cell so run() re-pins it after each inference -- the rule can never
+          // heal it, while the feathered rim keeps living around the scar.
           if (this.lockMask && !this.lockMask[pixel]) {
             this.lockMask[pixel] = 1;
             this.lockedPixels.push(pixel);
           }
-          for (let channel = 0; channel < 12; channel += 1) {
+          for (let channel = 0; channel < this.chn; channel += 1) {
             this.stateData[channel * n2 + pixel] = 0;
           }
           continue;
         }
-        for (let channel = 0; channel < 12; channel += 1) {
+        for (let channel = 0; channel < this.chn; channel += 1) {
           this.stateData[channel * n2 + pixel] *= keep;
         }
       }

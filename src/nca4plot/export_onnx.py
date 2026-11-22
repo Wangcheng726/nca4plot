@@ -1,6 +1,6 @@
 """Export fixed-size NCA graphs for ONNX Runtime Web and JSON weights.
 
-Two kinds share the same 5,856-parameter architecture:
+Two kinds share the same small fully-convolutional architecture:
   texture  - square grid, RGB+0.5 offset, infinite drift (persistent mode);
   target   - rectangular grid, RGBA in [0,1], life-gated regrowth of a fixed
              painting (regenerate / growing modes).
@@ -23,7 +23,7 @@ from PIL import Image
 from .model import CA, ExportCA, parameter_count
 
 
-DEFAULT_STEPS = {128: 4, 256: 4, 512: 2}
+DEFAULT_STEPS = {128: 4, 256: 4, 384: 3, 512: 2}
 
 
 def sha256_file(path: Path) -> str:
@@ -43,12 +43,13 @@ def load_payload(checkpoint: Path) -> dict:
 
 def load_model(checkpoint: Path, device: torch.device = torch.device("cpu")) -> CA:
     payload = load_payload(checkpoint)
-    ca = CA()
+    w1 = payload["model_state_dict"]["w1.weight"]
+    hidden_n, in_ch = int(w1.shape[0]), int(w1.shape[1])
+    arch = payload.get("architecture", {})
+    ca = CA(in_ch // 4, hidden_n, kernel_scale=float(arch.get("kernel_scale", 1.0)))
     ca.load_state_dict(payload["model_state_dict"])
     ca.life_gating = bool(payload.get("life_gating", False))
     ca.to(device).eval()
-    if parameter_count(ca) != 5856:
-        raise AssertionError(parameter_count(ca))
     return ca
 
 
@@ -68,7 +69,8 @@ def save_delivery_checkpoint(ca: CA, source: Path, out_path: Path, source_payloa
     }
     payload = {
         "format_version": 2,
-        "architecture": {"chn": 12, "hidden_n": 96},
+        "architecture": {"chn": ca.chn, "hidden_n": ca.hidden_n,
+                         "kernel_scale": ca.kernel_scale},
         "parameter_count": parameter_count(ca),
         "model_state_dict": {k: v.detach().cpu() for k, v in ca.state_dict().items()},
         "training": training,
@@ -86,7 +88,7 @@ def save_delivery_checkpoint(ca: CA, source: Path, out_path: Path, source_payloa
 
 def export_one(ca: CA, size: int, steps: int, out_path: Path, checkpoint: Path) -> dict:
     wrapper = ExportCA(ca, steps).eval()
-    state = torch.zeros(1, 12, size, size, dtype=torch.float32)
+    state = torch.zeros(1, ca.chn, size, size, dtype=torch.float32)
     gen = torch.Generator().manual_seed(20261119 + size)
     masks = (torch.rand(steps, 1, size, size, generator=gen) < 0.5).float()
     with torch.no_grad():
@@ -109,14 +111,14 @@ def export_one(ca: CA, size: int, steps: int, out_path: Path, checkpoint: Path) 
     onnx.checker.check_model(model)
     props = {
         "title": "nca4plot Starry Night texture NCA",
-        "architecture": "texture NCA 12ch / 96 hidden / four fixed kernels",
-        "parameter_count": "5856",
+        "architecture": f"texture NCA {ca.chn}ch / {ca.hidden_n} hidden / four fixed kernels",
+        "parameter_count": str(parameter_count(ca)),
         "size": str(size),
         "steps_per_inference": str(steps),
         "state_layout": "NCHW float32, first 3 channels RGB offset by +0.5",
         "mask_layout": "K x 1 x H x W, values 0 or 1, applied per cell",
         "training_checkpoint": checkpoint.name,
-        "training_exemplar": "128px Starry Night sky crop (public domain source)",
+        "training_exemplar": "Starry Night sky crops (public domain source)",
         "license": "Code MIT; weights CC BY 4.0; source artwork public domain",
     }
     for key, value in props.items():
@@ -164,11 +166,11 @@ def export_target_one(
     target = load_target_rgba(target_path)
     if tuple(target.shape[-2:]) != (height, width):
         raise AssertionError(f"target {target.shape} != {width}x{height}")
-    seed = torch.zeros(1, 12, height, width, dtype=torch.float32)
+    seed = torch.zeros(1, ca.chn, height, width, dtype=torch.float32)
     seed[0, :4, height // 2, width // 2] = target[0, :4, height // 2, width // 2]
     gen = torch.Generator().manual_seed(20261120)
     masks = (torch.rand(steps, 1, height, width, generator=gen) < 0.5).float()
-    living = torch.zeros(1, 12, height, width, dtype=torch.float32)
+    living = torch.zeros(1, ca.chn, height, width, dtype=torch.float32)
     living[0, :4] = target[0, :4]
     inputs = [seed, living]
     with torch.no_grad():
@@ -184,8 +186,8 @@ def export_target_one(
     onnx.checker.check_model(model)
     props = {
         "title": "nca4plot Starry Night target NCA (growing-CA style)",
-        "architecture": "target NCA 12ch (RGBA+8 hidden) / 96 hidden / four fixed kernels",
-        "parameter_count": "5856",
+        "architecture": f"target NCA {ca.chn}ch (RGBA+{ca.chn - 4} hidden) / {ca.hidden_n} hidden / four fixed kernels",
+        "parameter_count": str(parameter_count(ca)),
         "kind": "target",
         "size": f"{width}x{height}",
         "steps_per_inference": str(steps),
@@ -236,7 +238,8 @@ def export_json_weights(ca: CA, out_path: Path) -> dict:
     payload = {
         "format": "nca4plot-weights-v1",
         "parameter_count": parameter_count(ca),
-        "architecture": {"chn": 12, "hidden_n": 96},
+        "architecture": {"chn": ca.chn, "hidden_n": ca.hidden_n,
+                         "kernel_scale": ca.kernel_scale},
         "license": "CC BY 4.0",
         "tensors": tensors,
     }
@@ -257,11 +260,14 @@ def main() -> None:
     parser.add_argument("--sizes", nargs="+", type=int, default=[128, 256, 512])
     parser.add_argument("--kind", choices=["texture", "target"], default="texture")
     parser.add_argument("--target-steps", type=int, default=4)
+    parser.add_argument("--primary-target", default="256x144",
+                        help="WxH whose export also writes the legacy un-suffixed aliases")
     args = parser.parse_args()
 
     source_payload = load_payload(args.checkpoint)
     ca = load_model(args.checkpoint)
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    primary_wh = tuple(int(v) for v in args.primary_target.lower().split("x"))
 
     if args.kind == "target":
         ca.life_gating = True
@@ -295,13 +301,16 @@ def main() -> None:
                 "steps_per_inference": args.target_steps,
                 "seed_rgba": [round(v, 6) for v in rgba],
                 "seed_image": seed_image_name,
+                "chn": ca.chn,
+                "hidden_n": ca.hidden_n,
+                "kernel_scale": ca.kernel_scale,
                 "parameter_count": parameter_count(ca),
                 "target_sha256": sha256_file(target_path),
                 "state_layout": "RGBA in [0,1], no offset; zero state = dead",
             }
             (args.web_dir / f"nca_target_meta_{width}x{height}.json").write_text(
                 json.dumps(meta, indent=2), encoding="utf-8")
-            if (width, height) == (256, 144):
+            if (width, height) == primary_wh:
                 shutil.copy2(args.web_dir / seed_image_name,
                              args.web_dir / "nca_target_seed.png")
                 legacy = dict(meta, seed_image="nca_target_seed.png")
@@ -310,7 +319,7 @@ def main() -> None:
         weights_report = export_json_weights(
             ca, args.out_dir / f"nca_target_weights_{width}x{height}.json")
         report_path = args.out_dir / f"export_target_report_{width}x{height}.json"
-        if (width, height) == (256, 144):
+        if (width, height) == primary_wh:
             shutil.copy2(args.out_dir / f"nca_target_weights_{width}x{height}.json",
                          args.out_dir / "nca_target_weights.json")
         report_path.write_text(json.dumps({
@@ -322,7 +331,7 @@ def main() -> None:
             "weights": weights_report,
             "web_models": web_reports,
         }, indent=2), encoding="utf-8")
-        if (width, height) == (256, 144):
+        if (width, height) == primary_wh:
             shutil.copy2(report_path, args.out_dir / "export_target_report.json")
         print(json.dumps(report, ensure_ascii=False), flush=True)
         print(json.dumps({"event": "export_complete", "kind": "target",
@@ -348,6 +357,19 @@ def main() -> None:
             web_reports.append({"path": web_path.as_posix(), "bytes": web_path.stat().st_size})
         print(json.dumps(report, ensure_ascii=False), flush=True)
 
+    texture_meta = {
+        "kind": "texture",
+        "chn": ca.chn,
+        "hidden_n": ca.hidden_n,
+        "parameter_count": parameter_count(ca),
+        "sizes": list(args.sizes),
+        "steps_per_inference": {str(s): DEFAULT_STEPS[s] for s in args.sizes},
+    }
+    (args.out_dir / "nca_starry_meta.json").write_text(
+        json.dumps(texture_meta, indent=2), encoding="utf-8")
+    if args.web_dir is not None:
+        (args.web_dir / "nca_starry_meta.json").write_text(
+            json.dumps(texture_meta, indent=2), encoding="utf-8")
     weights_report = export_json_weights(ca, args.out_dir / "nca_starry_weights.json")
     report_path = args.out_dir / "export_report.json"
     report_path.write_text(

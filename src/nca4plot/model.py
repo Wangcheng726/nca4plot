@@ -21,9 +21,31 @@ LAPLACIAN = torch.tensor(
 )
 
 
-def perception_filters(device: torch.device | str = "cpu", dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    """Return the four fixed per-channel perception kernels, shape [4, 3, 3]."""
-    return torch.stack([IDENTITY, SOBEL_X, SOBEL_X.T, LAPLACIAN]).to(device=device, dtype=dtype)
+_PERCEPTION_CACHE: dict[tuple, torch.Tensor] = {}
+
+
+def perception_filters(device: torch.device | str = "cpu", dtype: torch.dtype = torch.float32,
+                       scale: float = 1.0) -> torch.Tensor:
+    """Return the four fixed per-channel perception kernels, shape [4, 3, 3].
+
+    Cached per (device, dtype): rebuilding these tiny tensors and copying them
+    H2D on every CA step is a pageable memcpy, which implicitly synchronises
+    the whole device. Inside gradient-checkpoint recomputation that serialised
+    long rollouts (~80 s/step at 512x288). The kernels are constants, so one
+    cached tensor per device/dtype is safe for training and ONNX export.
+    """
+    dev = torch.device(device)
+    scale = float(scale)
+    key = (dev.type, dev.index, dtype, scale)
+    hit = _PERCEPTION_CACHE.get(key)
+    if hit is None:
+        # v11: official notebook normalises sobel by 8; scaling the
+        # derivative kernels shrinks per-step update magnitude so the
+        # rule refines strokes instead of oscillating into speckle.
+        hit = torch.stack([IDENTITY, SOBEL_X / scale, SOBEL_X.T / scale,
+                           LAPLACIAN / scale]).to(device=dev, dtype=dtype)
+        _PERCEPTION_CACHE[key] = hit
+    return hit
 
 
 def circular_pad_3x3(x: torch.Tensor) -> torch.Tensor:
@@ -44,12 +66,17 @@ def perchannel_conv(x: torch.Tensor, filters: torch.Tensor) -> torch.Tensor:
 
 
 class CA(nn.Module):
-    """The 5,856-parameter texture neural cellular automaton."""
+    """Small fully-convolutional NCA rule.
 
-    def __init__(self, chn: int = 12, hidden_n: int = 96):
+    Default 12ch/96 hidden = 5,856 params (official texture baseline);
+    the delivered sky models use 16ch/128 hidden = 10,368 params.
+    """
+
+    def __init__(self, chn: int = 12, hidden_n: int = 96, kernel_scale: float = 1.0):
         super().__init__()
         self.chn = int(chn)
         self.hidden_n = int(hidden_n)
+        self.kernel_scale = float(kernel_scale)
         self.w1 = nn.Conv2d(chn * 4, hidden_n, 1)
         self.w2 = nn.Conv2d(hidden_n, chn, 1, bias=False)
         self.w2.weight.data.zero_()
@@ -58,7 +85,7 @@ class CA(nn.Module):
         self.life_gating = False
 
     def perceive(self, x: torch.Tensor) -> torch.Tensor:
-        return perchannel_conv(x, perception_filters(x.device, x.dtype))
+        return perchannel_conv(x, perception_filters(x.device, x.dtype, self.kernel_scale))
 
     def step(self, x: torch.Tensor, update_mask: torch.Tensor) -> torch.Tensor:
         """One update with an externally supplied per-cell [B,1,H,W] mask."""

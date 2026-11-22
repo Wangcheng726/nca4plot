@@ -14,6 +14,12 @@ def test_parameter_count_is_exact() -> None:
     assert parameter_count(ca) == 5856
 
 
+def test_production_configuration_parameter_count() -> None:
+    # The delivered sky models use 16 channels / 128 hidden units.
+    ca = CA(chn=16, hidden_n=128)
+    assert parameter_count(ca) == 10368
+
+
 def test_step_preserves_shape_and_is_finite_on_square_input() -> None:
     torch.manual_seed(4)
     ca = CA().eval()

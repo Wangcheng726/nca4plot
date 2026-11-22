@@ -1,4 +1,4 @@
-"""Tests for genuine 12-channel erasure and continued inference."""
+"""Tests for genuine all-channel erasure and continued inference."""
 
 from __future__ import annotations
 
